@@ -98,13 +98,25 @@ const i32_u8 = new Uint8Array(i32.buffer);
 const f64 = new Float64Array(1);
 const f64_u8 = new Uint8Array(f64.buffer);
 
+const BinaryHeap = require('./src/binary-heap');
+
+// const searchHeap = (heap, string, index = 0, score = heap.scoreFunction(string)) => {
+//   if (heap.content === string) {
+//     return index;
+//   }
+//   const scoreLeft = heap.scoreFunction(heap.content[index]);
+//   if (scoreAt)
+// };
+
 class StringCount {
   constructor(order = []) {
     this.counts = new Map();
     this.order = order;
+    this.heap = new BinaryHeap(a => this.counts.get(a));
 
     for (const string of this.order) {
       this.counts.set(string, 1);
+      this.heap.push(string);
     }
   }
 
@@ -117,8 +129,10 @@ class StringCount {
       this.order.length = 0;
     }
 
+    this.heap = new BinaryHeap(a => this.counts.get(a));
     for (const string of this.order) {
       this.counts.set(string, 1);
+      this.heap.push(string);
     }
   }
 
@@ -129,26 +143,30 @@ class StringCount {
   _last(string, count) {
     const counts = this.counts;
     const order = this.order;
-    let index = order.lastIndexOf(string);
-    if (count < 3) {
+    // let index = order.lastIndexOf(string);
+    let index = this.heap.content.indexOf(string);
+    if (count < 1) {
       return index;
     }
-    let i = index;
-    if (i === -1) {
-      i = order.length;
-    }
-    for (; i > 0; i--) {
-      if (counts.get(order[i - 1]) >= count) {
-        break;
-      }
-    }
 
-    if (index !== i) {
-      order[index] = order[i];
-      order[i] = string;
-      // order.splice(index, 1);
-      // order.splice(i, 0, string);
-    }
+    this.heap.bubbleUp(index);
+
+    // let i = index;
+    // if (i === -1) {
+    //   i = order.length;
+    // }
+    // for (; i > 0; i--) {
+    //   if (counts.get(order[i - 1]) >= count) {
+    //     break;
+    //   }
+    // }
+    //
+    // if (index !== i) {
+    //   order[index] = order[i];
+    //   order[i] = string;
+    //   // order.splice(index, 1);
+    //   // order.splice(i, 0, string);
+    // }
 
     return index;
   }
@@ -158,7 +176,8 @@ class StringCount {
     const count = (counts.get(string) || 0) + 1;
     counts.set(string, count);
     if (count === 1) {
-      this.order.push(string);
+      // this.order.push(string);
+      this.heap.push(string);
       return -1;
     }
     return this._last(string, count);
@@ -172,19 +191,25 @@ class StringCount {
     const count = (counts.get(string) || 0) + 1;
     counts.set(string, count);
 
-    let i;
-    for (i = index; i > 0; i--) {
-      if (counts.get(order[i - 1]) >= count) {
-        break;
-      }
+    if (count < 1) {
+      return string;
     }
 
-    if (index !== i) {
-      order[index] = order[i];
-      order[i] = string;
-      // order.splice(index, 1);
-      // order.splice(i, 0, string);
-    }
+    this.heap.bubbleUp(index);
+
+    // let i;
+    // for (i = index; i > 0; i--) {
+    //   if (counts.get(order[i - 1]) >= count) {
+    //     break;
+    //   }
+    // }
+    //
+    // if (index !== i) {
+    //   order[index] = order[i];
+    //   order[i] = string;
+    //   // order.splice(index, 1);
+    //   // order.splice(i, 0, string);
+    // }
 
     return string;
   }
@@ -1227,76 +1252,76 @@ function bench1(n) {
 const ORDER = [
   // 'type', 'request', 'userRequest', 'rawRequest', 'resource', 'loaders', 'parser', 'options', 'sourceType', 'moduleType', 'generator', 'resolveOptions'
 
-  'type',
-  'constructor',
-  'data',
-  'request',
-  'userRequest',
-  'rawRequest',
-  'loaders',
-  'resource',
-  'parser',
-  'options',
-  'sourceType',
-  'moduleType',
-  'generator',
-  'resolveOptions',
-  'identifier',
-  'assigned',
-  'factoryMeta',
-  'issuer',
-  'useSourceMap',
-  'lineToLine',
-  'build',
-  'built',
-  'buildTimestamp',
-  'buildMeta',
-  'exportsType',
-  'providedExports',
-  'buildInfo',
-  'cacheable',
-  'fileDependencies',
-  'contextDependencies',
-  'exportsArgument',
-  'warnings',
-  'errors',
-  '_source',
-  'value',
-  'name',
-  'hash',
-  '_lastSuccessfulBuildMeta',
-  'dependencyBlock',
-  'DependenciesBlock',
-  'dependencies',
-  'loc',
-  'start',
-  'line',
-  'column',
-  'end',
-  'index',
-  'expression',
-  'range',
-  'sourceOrder',
-  'rangeStatement',
-  'id',
-  'is',
-  'strictExportPresence',
-  'namespaceObjectAsContext',
-  'callArgs',
-  'properties',
-  'call',
-  'callee',
-  'arguments',
-  'directImport',
-  'variables',
-  'blocks',
-  'source',
-  '_cachedSource',
-  'replacements',
-  'cachedSource',
-  'cachedMaps',
-  '_cachedSourceHash',
-  'renderedHash',
+  // 'type',
+  // 'constructor',
+  // 'data',
+  // 'request',
+  // 'userRequest',
+  // 'rawRequest',
+  // 'loaders',
+  // 'resource',
+  // 'parser',
+  // 'options',
+  // 'sourceType',
+  // 'moduleType',
+  // 'generator',
+  // 'resolveOptions',
+  // 'identifier',
+  // 'assigned',
+  // 'factoryMeta',
+  // 'issuer',
+  // 'useSourceMap',
+  // 'lineToLine',
+  // 'build',
+  // 'built',
+  // 'buildTimestamp',
+  // 'buildMeta',
+  // 'exportsType',
+  // 'providedExports',
+  // 'buildInfo',
+  // 'cacheable',
+  // 'fileDependencies',
+  // 'contextDependencies',
+  // 'exportsArgument',
+  // 'warnings',
+  // 'errors',
+  // '_source',
+  // 'value',
+  // 'name',
+  // 'hash',
+  // '_lastSuccessfulBuildMeta',
+  // 'dependencyBlock',
+  // 'DependenciesBlock',
+  // 'dependencies',
+  // 'loc',
+  // 'start',
+  // 'line',
+  // 'column',
+  // 'end',
+  // 'index',
+  // 'expression',
+  // 'range',
+  // 'sourceOrder',
+  // 'rangeStatement',
+  // 'id',
+  // 'is',
+  // 'strictExportPresence',
+  // 'namespaceObjectAsContext',
+  // 'callArgs',
+  // 'properties',
+  // 'call',
+  // 'callee',
+  // 'arguments',
+  // 'directImport',
+  // 'variables',
+  // 'blocks',
+  // 'source',
+  // '_cachedSource',
+  // 'replacements',
+  // 'cachedSource',
+  // 'cachedMaps',
+  // '_cachedSourceHash',
+  // 'renderedHash',
 ];
 
 function bench2(n) {
@@ -1397,11 +1422,11 @@ for (const [key, value] of Object.entries(testData3)) {
 // delete testData3.build._lastSuccessfulBuildMeta;
 // testData3.build.buildMeta.providedExports = testData3.build.buildMeta.providedExports.join(',');
 // testData3.build._lastSuccessfulBuildMeta.providedExports = testData3.build._lastSuccessfulBuildMeta.providedExports.join(',');
-const testData = testData3;
-console.log(bench1(1e2));
-console.log(bench2(1e1));
-console.log(bench3(1e2));
-console.log(bench4(1e2));
+const testData = testData1;
+console.log(bench1(1e3)); // JSON encode
+console.log(bench2(1e3)); // kp encode
+console.log(bench3(1e3)); // JSON decode
+console.log(bench4(1e3)); // kp decode
 // console.log(JSON.stringify(testData));
 console.log(JSON.stringify(testData).length);
 console.log(write(b, 0, testData, ORDER.slice()));

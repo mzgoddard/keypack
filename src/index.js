@@ -63,7 +63,7 @@
 // - find last dictionary item with count equal to or greater than this item
 // - move item to after that item
 
-const {TextEncoder, TextDecoder} = require('util');
+const {TextEncoder, TextDecoder} = require('./text-encoding');
 
 const NULL = 0x00;
 const BOOLEAN = 0x01;
@@ -808,209 +808,11 @@ const read = (u8, offset) => {
   return result;
 };
 
-
-// let {TextEncoder, TextDecoder} = (function() {
-//   const mod = {};
-//   /*
-//   * Copyright 2017 Sam Thorogood. All rights reserved.
-//   *
-//   * Licensed under the Apache License, Version 2.0 (the "License"); you may not
-//   * use this file except in compliance with the License. You may obtain a copy of
-//   * the License at
-//   *
-//   *     http://www.apache.org/licenses/LICENSE-2.0
-//   *
-//   * Unless required by applicable law or agreed to in writing, software
-//   * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-//   * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-//   * License for the specific language governing permissions and limitations under
-//   * the License.
-//   */
-//
-//   /**
-//   * @fileoverview Polyfill for TextEncoder and TextDecoder.
-//   *
-//   * You probably want `text.min.js`, and not this file directly.
-//   */
-//
-//   (function(scope) {
-//   'use strict';
-//
-//   // fail early
-//   if (scope['TextEncoder'] && scope['TextDecoder']) {
-//   return false;
-//   }
-//
-//   /**
-//   * @constructor
-//   * @param {string=} utfLabel
-//   */
-//   function FastTextEncoder(utfLabel='utf-8') {
-//   if (utfLabel !== 'utf-8') {
-//     throw new RangeError(
-//       `Failed to construct 'TextEncoder': The encoding label provided ('${utfLabel}') is invalid.`);
-//     }
-//   }
-//
-//   Object.defineProperty(FastTextEncoder.prototype, 'encoding', {value: 'utf-8'});
-//
-//   /**
-//   * @param {string} string
-//   * @param {{stream: boolean}=} options
-//   * @return {!Uint8Array}
-//   */
-//   FastTextEncoder.prototype.encode = function(string, options={stream: false}) {
-//     if (options.stream) {
-//       throw new Error(`Failed to encode: the 'stream' option is unsupported.`);
-//     }
-//
-//     let pos = 0;
-//     const len = string.length;
-//     const out = [];
-//
-//     let at = 0;  // output position
-//     let tlen = Math.max(32, len + (len >> 1) + 7);  // 1.5x size
-//     let target = new Uint8Array((tlen >> 3) << 3);  // ... but at 8 byte offset
-//
-//     while (pos < len) {
-//       let value = string.charCodeAt(pos++);
-//       if (value >= 0xd800 && value <= 0xdbff) {
-//         // high surrogate
-//         if (pos < len) {
-//           const extra = string.charCodeAt(pos);
-//           if ((extra & 0xfc00) === 0xdc00) {
-//             ++pos;
-//             value = ((value & 0x3ff) << 10) + (extra & 0x3ff) + 0x10000;
-//           }
-//         }
-//         if (value >= 0xd800 && value <= 0xdbff) {
-//           continue;  // drop lone surrogate
-//         }
-//       }
-//
-//       // expand the buffer if we couldn't write 4 bytes
-//       if (at + 4 > target.length) {
-//         tlen += 8;  // minimum extra
-//         tlen *= (1.0 + (pos / string.length) * 2);  // take 2x the remaining
-//         tlen = (tlen >> 3) << 3;  // 8 byte offset
-//
-//         const update = new Uint8Array(tlen);
-//         update.set(target);
-//         target = update;
-//       }
-//
-//       if ((value & 0xffffff80) === 0) {  // 1-byte
-//         target[at++] = value;  // ASCII
-//         continue;
-//       } else if ((value & 0xfffff800) === 0) {  // 2-byte
-//         target[at++] = ((value >>  6) & 0x1f) | 0xc0;
-//       } else if ((value & 0xffff0000) === 0) {  // 3-byte
-//         target[at++] = ((value >> 12) & 0x0f) | 0xe0;
-//         target[at++] = ((value >>  6) & 0x3f) | 0x80;
-//       } else if ((value & 0xffe00000) === 0) {  // 4-byte
-//         target[at++] = ((value >> 18) & 0x07) | 0xf0;
-//         target[at++] = ((value >> 12) & 0x3f) | 0x80;
-//         target[at++] = ((value >>  6) & 0x3f) | 0x80;
-//       } else {
-//         // FIXME: do we care
-//         continue;
-//       }
-//
-//       target[at++] = (value & 0x3f) | 0x80;
-//     }
-//
-//     return target.slice(0, at);
-//   }
-//
-//   /**
-//   * @constructor
-//   * @param {string=} utfLabel
-//   * @param {{fatal: boolean}=} options
-//   */
-//   function FastTextDecoder(utfLabel='utf-8', options={fatal: false}) {
-//     if (utfLabel !== 'utf-8') {
-//       throw new RangeError(
-//         `Failed to construct 'TextDecoder': The encoding label provided ('${utfLabel}') is invalid.`);
-//       }
-//       if (options.fatal) {
-//         throw new Error(`Failed to construct 'TextDecoder': the 'fatal' option is unsupported.`);
-//       }
-//     }
-//
-//     Object.defineProperty(FastTextDecoder.prototype, 'encoding', {value: 'utf-8'});
-//
-//     Object.defineProperty(FastTextDecoder.prototype, 'fatal', {value: false});
-//
-//     Object.defineProperty(FastTextDecoder.prototype, 'ignoreBOM', {value: false});
-//
-//     /**
-//     * @param {(!ArrayBuffer|!ArrayBufferView)} buffer
-//     * @param {{stream: boolean}=} options
-//     */
-//     FastTextDecoder.prototype.decode = function(buffer, pos = 0, end = buffer.length) {
-//       // if (options['stream']) {
-//       //   throw new Error(`Failed to decode: the 'stream' option is unsupported.`);
-//       // }
-//
-//       const bytes = buffer;
-//       let out = '';
-//
-//       while (pos < end) {
-//         const byte1 = bytes[pos++];
-//         if (byte1 === 0) {
-//           break;  // NULL
-//         }
-//
-//         if ((byte1 & 0x80) === 0) {  // 1-byte
-//           out += CHARS_127[byte1];
-//         } else if ((byte1 & 0xe0) === 0xc0) {  // 2-byte
-//           const byte2 = bytes[pos++] & 0x3f;
-//           out += String.fromCharCode(((byte1 & 0x1f) << 6) | byte2);
-//         } else if ((byte1 & 0xf0) === 0xe0) {
-//           const byte2 = bytes[pos++] & 0x3f;
-//           const byte3 = bytes[pos++] & 0x3f;
-//           out += String.fromCharCode(((byte1 & 0x1f) << 12) | (byte2 << 6) | byte3);
-//         } else if ((byte1 & 0xf8) === 0xf0) {
-//           const byte2 = bytes[pos++] & 0x3f;
-//           const byte3 = bytes[pos++] & 0x3f;
-//           const byte4 = bytes[pos++] & 0x3f;
-//
-//           // this can be > 0xffff, so possibly generate surrogates
-//           let codepoint = ((byte1 & 0x07) << 0x12) | (byte2 << 0x0c) | (byte3 << 0x06) | byte4;
-//           if (codepoint > 0xffff) {
-//             // codepoint &= ~0x10000;
-//             codepoint -= 0x10000;
-//             out.push((codepoint >>> 10) & 0x3ff | 0xd800)
-//             codepoint = 0xdc00 | codepoint & 0x3ff;
-//           }
-//           out += String.fromCharCode(codepoint);
-//         } else {
-//           // FIXME: we're ignoring this
-//         }
-//       }
-//
-//       return out;
-//     }
-//
-//     scope['TextEncoder'] = FastTextEncoder;
-//     scope['TextDecoder'] = FastTextDecoder;
-//
-//   }(mod));
-//   return mod;
-// })();
-//
-// if (this.TextEncoder) {
-//   TextEncoder = this.TextEncoder;
-//   TextDecoder = this.TextDecoder;
-// }
-
 const b = new Uint8Array(256 * 1024);
 b.slice(0, write(b, 0, [1, 2, 3]));
 read(b, 0);
 
-const testData1 = {"type":"NormalModule","constructor":{"data":{"type":"javascript/auto","request":"index.js","userRequest":"index.js","rawRequest":"index.js","loaders":[],"resource":"index.js","parser":{"type":"Parser","options":{},"sourceType":"auto","moduleType":"javascript/auto"},"generator":{"type":"JavascriptGenerator","moduleType":"javascript/auto","options":{}},"resolveOptions":{}}},"identifier":"index.js","assigned":{"factoryMeta":{},"issuer":null,"useSourceMap":false,"lineToLine":false},"build":{"built":true,"buildTimestamp":1518546698333,"buildMeta":{"exportsType":"namespace","providedExports":["default"]},"buildInfo":{"cacheable":true,"fileDependencies":["index.js"],"contextDependencies":[],"strict":true,"exportsArgument":"__webpack_exports__"},"warnings":[],"errors":[],"_source":{"type":"OriginalSource","value":"import is from './is';\n\nexport default is({});\n","name":"index.js"},"hash":"385d51f3c5d321e36f963e594282af3b","_lastSuccessfulBuildMeta":{"exportsType":"namespace","providedExports":["default"]}},"dependencyBlock":{"type":"DependenciesBlock","dependencies":[{"type":"HarmonyCompatibilityDependency","loc":{"start":{"line":-1,"column":0},"end":{"line":-1,"column":0},"index":-3}},{"type":"HarmonyInitDependency","loc":{"start":{"line":-1,"column":0},"end":{"line":-1,"column":0},"index":-2}},{"type":"ConstDependency","expression":"","range":[0,22],"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":22}}},{"type":"HarmonyImportSideEffectDependency","request":"./is","sourceOrder":1,"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":22}}},{"type":"HarmonyExportHeaderDependency","range":[39,45],"rangeStatement":[24,46],"loc":{"index":-1,"start":{"line":3,"column":0},"end":{"line":3,"column":22}}},{"type":"HarmonyExportExpressionDependency","range":[39,45],"rangeStatement":[24,46],"loc":{"index":-1,"start":{"line":3,"column":0},"end":{"line":3,"column":22}}},{"type":"HarmonyImportSpecifierDependency","request":"./is","sourceOrder":1,"id":"default","name":"is","range":[39,41],"strictExportPresence":false,"namespaceObjectAsContext":false,"callArgs":[{"type":"ObjectExpression","start":42,"end":44,"loc":{"start":{"line":3,"column":18},"end":{"line":3,"column":20}},"range":[42,44],"properties":[]}],"call":{"type":"CallExpression","start":39,"end":45,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":21}},"range":[39,45],"callee":{"type":"Identifier","start":39,"end":41,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":17}},"range":[39,41],"name":"is"},"arguments":[{"type":"ObjectExpression","start":42,"end":44,"loc":{"start":{"line":3,"column":18},"end":{"line":3,"column":20}},"range":[42,44],"properties":[]}]},"directImport":true,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":17}}}],"variables":[],"blocks":[]},"source":{"_cachedSource":{"type":"CachedSource","source":{"type":"ReplaceSource","replacements":[[45,45,");",3],[39,40,"__WEBPACK_MODULE_REFERENCE__1_64656661756c74_call__",4],[24,38,"/* harmony default export */ var __WEBPACK_MODULE_DEFAULT_EXPORT__ = __webpack_exports__[\"default\"] = (",2],[24,38,"",1],[0,21,"",0]]},"cachedSource":"\n\n/* harmony default export */ var __WEBPACK_MODULE_DEFAULT_EXPORT__ = __webpack_exports__[\"default\"] = (__WEBPACK_MODULE_REFERENCE__1_64656661756c74_call__({}));\n","cachedMaps":{}},"_cachedSourceHash":"385d51f3c5d321e36f963e594282af3b-undefined","renderedHash":"385d51f3c5d321e36f96"}};
-const testData2 = JSON.parse(require('fs').readFileSync('./test2.json', 'utf8'));
-const testData3 = JSON.parse(require('fs').readFileSync('./test3.json', 'utf8'));
+const testData = {"type":"NormalModule","constructor":{"data":{"type":"javascript/auto","request":"index.js","userRequest":"index.js","rawRequest":"index.js","loaders":[],"resource":"index.js","parser":{"type":"Parser","options":{},"sourceType":"auto","moduleType":"javascript/auto"},"generator":{"type":"JavascriptGenerator","moduleType":"javascript/auto","options":{}},"resolveOptions":{}}},"identifier":"index.js","assigned":{"factoryMeta":{},"issuer":null,"useSourceMap":false,"lineToLine":false},"build":{"built":true,"buildTimestamp":1518546698333,"buildMeta":{"exportsType":"namespace","providedExports":["default"]},"buildInfo":{"cacheable":true,"fileDependencies":["index.js"],"contextDependencies":[],"strict":true,"exportsArgument":"__webpack_exports__"},"warnings":[],"errors":[],"_source":{"type":"OriginalSource","value":"import is from './is';\n\nexport default is({});\n","name":"index.js"},"hash":"385d51f3c5d321e36f963e594282af3b","_lastSuccessfulBuildMeta":{"exportsType":"namespace","providedExports":["default"]}},"dependencyBlock":{"type":"DependenciesBlock","dependencies":[{"type":"HarmonyCompatibilityDependency","loc":{"start":{"line":-1,"column":0},"end":{"line":-1,"column":0},"index":-3}},{"type":"HarmonyInitDependency","loc":{"start":{"line":-1,"column":0},"end":{"line":-1,"column":0},"index":-2}},{"type":"ConstDependency","expression":"","range":[0,22],"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":22}}},{"type":"HarmonyImportSideEffectDependency","request":"./is","sourceOrder":1,"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":22}}},{"type":"HarmonyExportHeaderDependency","range":[39,45],"rangeStatement":[24,46],"loc":{"index":-1,"start":{"line":3,"column":0},"end":{"line":3,"column":22}}},{"type":"HarmonyExportExpressionDependency","range":[39,45],"rangeStatement":[24,46],"loc":{"index":-1,"start":{"line":3,"column":0},"end":{"line":3,"column":22}}},{"type":"HarmonyImportSpecifierDependency","request":"./is","sourceOrder":1,"id":"default","name":"is","range":[39,41],"strictExportPresence":false,"namespaceObjectAsContext":false,"callArgs":[{"type":"ObjectExpression","start":42,"end":44,"loc":{"start":{"line":3,"column":18},"end":{"line":3,"column":20}},"range":[42,44],"properties":[]}],"call":{"type":"CallExpression","start":39,"end":45,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":21}},"range":[39,45],"callee":{"type":"Identifier","start":39,"end":41,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":17}},"range":[39,41],"name":"is"},"arguments":[{"type":"ObjectExpression","start":42,"end":44,"loc":{"start":{"line":3,"column":18},"end":{"line":3,"column":20}},"range":[42,44],"properties":[]}]},"directImport":true,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":17}}}],"variables":[],"blocks":[]},"source":{"_cachedSource":{"type":"CachedSource","source":{"type":"ReplaceSource","replacements":[[45,45,");",3],[39,40,"__WEBPACK_MODULE_REFERENCE__1_64656661756c74_call__",4],[24,38,"/* harmony default export */ var __WEBPACK_MODULE_DEFAULT_EXPORT__ = __webpack_exports__[\"default\"] = (",2],[24,38,"",1],[0,21,"",0]]},"cachedSource":"\n\n/* harmony default export */ var __WEBPACK_MODULE_DEFAULT_EXPORT__ = __webpack_exports__[\"default\"] = (__WEBPACK_MODULE_REFERENCE__1_64656661756c74_call__({}));\n","cachedMaps":{}},"_cachedSourceHash":"385d51f3c5d321e36f963e594282af3b-undefined","renderedHash":"385d51f3c5d321e36f96"}};
 
 const testDataString = '{"type":"javascript/auto","request":"index.js","userRequest":"index.js","rawRequest":"index.js","loaders":[],"resource":"index.js","parser":{"type":"Parser","options":{},"sourceType":"auto","moduleType":"javascript/auto"},"generator":{"type":"JavascriptGenerator","moduleType":"javascript/auto","options":{}},"resolveOptions":{}}';
 
@@ -1031,26 +833,23 @@ const testDataArray = new Uint8Array([
   123, 125, 125
 ]);
 
-let _testDataString;
-let _testDataArray;
+
 function bench1(n) {
   if (!_encoder) {
     _encoder = new TextEncoder();
   }
   var start = process.hrtime();
   while (n--) {
-    _encoder.encode(JSON.stringify(testData));
+    _encoder.encode(JSON.stringify(testData.constructor.data));
   }
   var end = process.hrtime();
-  _testDataString = JSON.stringify(testData);
-  _testDataArray = _encoder.encode(_testDataString);
   return end[0] - start[0] + (end[1] - start[1]) / 1e9;
 }
 
 function bench2(n) {
   var start = process.hrtime();
   while (n--) {
-    write(b, 0, testData);
+    write(b, 0, testData.constructor.data);
   }
   var end = process.hrtime();
   return end[0] - start[0] + (end[1] - start[1]) / 1e9;
@@ -1062,7 +861,7 @@ function bench3(n) {
   }
   var start = process.hrtime();
   while (n--) {
-    JSON.parse(_decoder.decode(_testDataArray));
+    JSON.parse(_decoder.decode(testDataArray));
   }
   var end = process.hrtime();
   return end[0] - start[0] + (end[1] - start[1]) / 1e9;
@@ -1119,26 +918,20 @@ function bench4(n) {
 //   return end - start;
 // }
 
-const testData = testData2;
-console.log(bench1(1e3)); // JSON encode
-console.log(bench2(1e3)); // kp encode
-console.log(bench3(1e3)); // JSON decode
-console.log(bench4(1e3)); // kp decode
-
-// console.log(bench1(1e4));
-// console.log(bench2(1e4));
-// console.log(bench3(1e5));
-// console.log(bench4(1e5));
-// console.log(write(b, 0, testData.constructor.data));
-// console.log(read(b, 0));
-// console.log(write(b, 0, null), read(b, 0));
-// console.log(write(b, 0, false), read(b, 0));
-// console.log(write(b, 0, true), read(b, 0));
-// console.log(write(b, 0, 0), read(b, 0));
-// console.log(write(b, 0, 1), read(b, 0));
-// console.log(write(b, 0, 0.5), read(b, 0));
-// console.log(write(b, 0, '012345678912345'), read(b, 0));
-// console.log((b[0] & 0x07) === STR7);
-// console.log(write(b, 0, '0123456789123456'), read(b, 0));
-// console.log(write(b, 0, {a: 1}), read(b, 0));
-// console.log(write(b, 0, [1, 2, 3]), read(b, 0));
+console.log(bench1(1e4));
+console.log(bench2(1e4));
+console.log(bench3(1e5));
+console.log(bench4(1e5));
+console.log(write(b, 0, testData.constructor.data));
+console.log(read(b, 0));
+console.log(write(b, 0, null), read(b, 0));
+console.log(write(b, 0, false), read(b, 0));
+console.log(write(b, 0, true), read(b, 0));
+console.log(write(b, 0, 0), read(b, 0));
+console.log(write(b, 0, 1), read(b, 0));
+console.log(write(b, 0, 0.5), read(b, 0));
+console.log(write(b, 0, '012345678912345'), read(b, 0));
+console.log((b[0] & 0x07) === STR7);
+console.log(write(b, 0, '0123456789123456'), read(b, 0));
+console.log(write(b, 0, {a: 1}), read(b, 0));
+console.log(write(b, 0, [1, 2, 3]), read(b, 0));
