@@ -1,0 +1,26 @@
+{
+  "name": "keypack",
+  "version": "1.0.0",
+  "description": "Serialize and deserialize objects with repeated keys and strings with memory and cpu efficiency in mind.",
+  "main": "autodick.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mzgoddard/keypack.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mzgoddard/keypack/issues"
+  },
+  "homepage": "https://github.com/mzgoddard/keypack#readme",
+  "devDependencies": {
+    "tap": "^11.1.5"
+  },
+  "dependencies": {
+    "text-encoding": "^0.6.4"
+  }
+}
