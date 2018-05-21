@@ -1,61 +1,34 @@
-// Copyright 2018 Michael "Z" Goddard
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
-// 0x00 null
-// 0x01 boolean
-// 0x02 int32
-// 0x03 float64
-// 0x04 utf8
-// 0x05 dict
-// 0x05 obj
-// 0x06 array
+const {TextEncoder, TextDecoder} = require('util');
 
 // 0x00 dict - 7 bit id 0-124 (first bit off) (id & 0x01 === 0x00)
-//   0xfa dict - 8 bits + 125 id
-//   0xfc dict - 2 byte id
-//   0xfe dict - 4 byte id
-// 0x01 uint6 - 6 bits 0-50 (first bit on, second bit off) (id & 0x03 === 0x01)
-//   0xcd uint8+ - 8bits + 50
-//   0xd1 '' (empty string)
-//   0xd5 null
-//   0xd9 false
-//   0xdd true
-//   0xe1 uint16
-//   0xd5 uint32
-//   0xe9 int8
-//   0xed int16
-//   0xf1 int32
-//   0xf5 float16
-//   0xf9 float32
-//   0xfd float64
-// 0x03 utf8 - 5 bit length 1-29 (first 2 bits on, third bit off) (id & 0x07 === 0x03)
-//   0xeb utf8 - 1 byte length
-//   0xf3 utf8 - 2 byte length
-//   0xfb utf8 - 4 byte length
-// 0x07 obj - 4 bit length 0-12 (first 3 bits on, fourth bit off) (id & 0x0f === 0x07)
-//   0xd7 obj - 1 byte length
-//   0xe7 obj - 2 byte length
-//   0xf7 obj - 4 byte length
-// 0x0f array - 4 bit length 0-12 (first 4 bits on) (id & 0x0f === 0x0f)
-//   0xdf array - 1 byte length
-//   0xef array - 2 byte length
+//   0x7d dict - 8 bits + 125 id
+//   0x7e dict - 2 byte id
+//   0x7f dict - 4 byte id
+// 0x80 uint6 - 6 bits 0-50 (first bit on, second bit off) (id & 0x03 === 0x01)
+//   0xb3 uint8+ - 8bits + 50
+//   0xb4 uint16
+//   0xb5 uint32
+//   0xb6 int8
+//   0xb7 int16
+//   0xb8 int32
+//   0xb9 float16
+//   0xba float32
+//   0xbb float64
+//   0xbc null
+//   0xbd false
+//   0xbe true
+//   0xbf '' (empty string)
+// 0xc0 utf8 - 5 bit length 1-28 (first 2 bits on, third bit off) (id & 0x07 === 0x03)
+//   0xdd utf8 - 1 byte + 30 length
+//   0xde utf8 - 2 byte length
+//   0xdf utf8 - 4 byte length
+// 0xe0 obj - 4 bit length 0-12 (first 3 bits on, fourth bit off) (id & 0x0f === 0x07)
+//   0xdd obj - 1 byte length
+//   0xde obj - 2 byte length
+//   0xdf obj - 4 byte length
+// 0xf0 array - 4 bit length 0-12 (first 4 bits on) (id & 0x0f === 0x0f)
+//   0xfd array - 1 byte length
+//   0xfe array - 2 byte length
 //   0xff array - 4 byte length
 
 // dict order
@@ -63,78 +36,484 @@
 // - find last dictionary item with count equal to or greater than this item
 // - move item to after that item
 
-const {TextEncoder, TextDecoder} = require('./text-encoding');
+const DICT_MASK = 0x80;
+const DICT_BIT_MASK = 0x7f;
+const DICT_PREFIX = 0x00;
+const VARIED_MASK = 0xc0;
+const VARIED_BIT_MASK = 0x3f;
+const VARIED_PREFIX = 0x80;
+const STRING_MASK = 0xe0;
+const STRING_BIT_MASK = 0x1f;
+const STRING_PREFIX = 0xc0;
+const OBJECT_MASK = 0xf0;
+const OBJECT_BIT_MASK = 0x0f;
+const OBJECT_PREFIX = 0xe0;
+const ARRAY_PREFIX = 0xf0;
 
-const NULL = 0x00;
-const BOOLEAN = 0x01;
-const FALSE = BOOLEAN;
-const TRUE = BOOLEAN | 0x8;
-const INT32 = 0x02;
-const FLOAT64 = 0x03;
-const UTF8 = 0x04;
-const DICT = 0x05;
-const STR7 = 0xff;
-const OBJ = 0x06;
-const ARY = 0x07;
+const DICT_1BYTE = 0x7d;
+const DICT_2BYTE = 0x7e;
+const DICT_4BYTE = 0x7f;
+const DICT_0BYTE_MAX = DICT_1BYTE - 1;
+const DICT_1BYTE_MAX = 0xff + DICT_0BYTE_MAX;
+const DICT_2BYTE_MAX = 0xffff;
+
+const UINT6_BIT_MASK = VARIED_BIT_MASK;
+const UINT8_PLUS = 0xb3;
+const UINT16 = 0xb4;
+const UINT32 = 0xb5;
+const INT8 = 0xb6;
+const INT16 = 0xb7;
+const INT32 = 0xb8;
+const FLOAT16 = 0xb9;
+const FLOAT32 = 0xba;
+const FLOAT64 = 0xbb;
+const NULL = 0xbc;
+const FALSE = 0xbd;
+const TRUE = 0xbe;
+const STRING_EMPTY = 0xbf;
+
+const UINT6_MAX = (UINT8_PLUS & VARIED_BIT_MASK) - 1;
+const UINT8_PLUS_MAX = 0xff + UINT6_MAX;
+const UINT16_MAX = 0xffff;
+const UINT32_MAX = 0x7fffffff;
+const INT8_MAX = 0x7f;
+const INT8_MIN = -0x80;
+const INT16_MAX = 0x7fff;
+const INT16_MIN = -0x8000;
+const INT32_MAX = 0x7fffffff;
+const INT32_MIN = -0x80000000;
+
+const BUFFER_1BYTE = 0xda;
+const BUFFER_2BYTE = 0xdb;
+const BUFFER_4BYTE = 0xdc;
+const STRING_1BYTE = 0xdd;
+const STRING_2BYTE = 0xde;
+const STRING_4BYTE = 0xdf;
+
+const OBJECT_1BYTE = 0xed;
+const OBJECT_2BYTE = 0xee;
+const OBJECT_4BYTE = 0xef;
+
+const ARRAY_1BYTE = 0xfd;
+const ARRAY_2BYTE = 0xfe;
+const ARRAY_4BYTE = 0xff;
 
 const CHARS_127 = '\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~';
-const DICTIONARY = [
-  'type',
-  'request',
-  'userRequest',
-  'rawRequest',
-  'loaders',
-  'resource',
-  'parser',
-  'generator',
-  'options',
-  'sourceType',
-  'moduleType',
-  'resolveOptions',
-];
-
-const writeId = (u8, offset, id) => {
-  u8[offset] = id;
-  return 1;
-};
-
-const writeNull = (u8, offset, value) => {
-  return writeId(u8, offset, NULL);
-};
-
-const writeBoolean = (u8, offset, value) => {
-  return writeId(u8, offset, value ? TRUE : FALSE);
-};
-
+const u16 = new Uint16Array(1);
+const u16_u8 = new Uint8Array(u16.buffer);
+const u32 = new Uint32Array(1);
+const u32_u8 = new Uint8Array(u32.buffer);
+const i8 = new Int8Array(1);
+const i8_u8 = new Uint8Array(i8.buffer);
+const i16 = new Int16Array(1);
+const i16_u8 = new Uint8Array(i16.buffer);
 const i32 = new Int32Array(1);
 const i32_u8 = new Uint8Array(i32.buffer);
-const writeInt32 = (u8, offset, value) => {
-  writeId(u8, offset, INT32);
-  i32[0] = value;
-  u8[offset + 1] = i32_u8[0];
-  u8[offset + 2] = i32_u8[1];
-  u8[offset + 3] = i32_u8[2];
-  u8[offset + 4] = i32_u8[3];
-  return 5;
+const f64 = new Float64Array(1);
+const f64_u8 = new Uint8Array(f64.buffer);
+const f64_u32 = new Uint32Array(f64.buffer);
+
+const BinaryHeap = require('./binary-heap');
+
+// const searchHeap = (heap, string, index = 0, score = heap.scoreFunction(string)) => {
+//   if (heap.content === string) {
+//     return index;
+//   }
+//   const scoreLeft = heap.scoreFunction(heap.content[index]);
+//   if (scoreAt)
+// };
+
+class StringCount {
+  constructor(order = []) {
+    this.counts = new Map();
+    this.order = order;
+    this.heap = new BinaryHeap(a => this.counts.get(a));
+
+    for (const string of this.order) {
+      this.counts.set(string, 1);
+      this.heap.push(string);
+    }
+  }
+
+  reset(order = null) {
+    this.counts = new Map();
+    if (order !== null) {
+      this.order = order;
+    }
+    else {
+      this.order.length = 0;
+    }
+
+    this.heap = new BinaryHeap(a => this.counts.get(a));
+    for (const string of this.order) {
+      this.counts.set(string, 1);
+      this.heap.push(string);
+    }
+  }
+
+  indexOf(string) {
+    
+  }
+
+  _last(string, count) {
+    const counts = this.counts;
+    const order = this.order;
+    // let index = order.lastIndexOf(string);
+    // let index = this.heap.content.indexOf(string);
+    let index = this.heap.contentIndex.get(string);
+    if (count < 2) {
+      return index;
+    }
+
+    this.heap.bubbleUp(index);
+
+    // let i = index;
+    // if (i === -1) {
+    //   i = order.length;
+    // }
+    // for (; i > 0; i--) {
+    //   if (counts.get(order[i - 1]) >= count) {
+    //     break;
+    //   }
+    // }
+    //
+    // if (index !== i) {
+    //   order[index] = order[i];
+    //   order[i] = string;
+    //   // order.splice(index, 1);
+    //   // order.splice(i, 0, string);
+    // }
+
+    return index;
+  }
+
+  use(string) {
+    const counts = this.counts;
+    const count = (counts.get(string) || 0) + 1;
+    counts.set(string, count);
+    if (count === 1) {
+      // this.order.push(string);
+      this.heap.push(string);
+      return -1;
+    }
+    return this._last(string, count);
+  }
+
+  string(index) {
+    const counts = this.counts;
+    const order = this.order;
+
+    const string = order[index];
+    const count = (counts.get(string) || 0) + 1;
+    counts.set(string, count);
+
+    if (count < 1) {
+      return string;
+    }
+
+    this.heap.bubbleUp(index);
+
+    // let i;
+    // for (i = index; i > 0; i--) {
+    //   if (counts.get(order[i - 1]) >= count) {
+    //     break;
+    //   }
+    // }
+    //
+    // if (index !== i) {
+    //   order[index] = order[i];
+    //   order[i] = string;
+    //   // order.splice(index, 1);
+    //   // order.splice(i, 0, string);
+    // }
+
+    return string;
+  }
+}
+
+class Keypack {
+  constructor() {
+    this.buffer = new ArrayBuffer(1 * 1024 * 1024);
+    this.u8 = new Uint8Array(this.buffer);
+    this.u8_node = new Buffer(this.buffer);
+    this.dict = new StringCount();
+
+    this.offset = 0;
+  }
+
+  ensureSpace(space) {
+    if (this.offset + space > this.buffer.length) {
+      const {buffer, u8} = this;
+      this.buffer = new ArrayBuffer(nextPow2(this.offset + space));
+      this.u8 = new Uint8Array(this.buffer);
+      this.u8_node = new Buffer(this.buffer);
+
+      this.u8.set(u8.slice(0, this.offset));
+    }
+  }
+
+  load(u8) {
+    this.offset = 0;
+    this.ensureSpace(u8.length);
+    this.u8.set(u8);
+    this.dict.reset();
+    return this;
+  }
+
+  save() {
+    return this.u8;
+  }
+}
+
+let _encoder = new TextEncoder(), _decoder = new TextDecoder();
+
+const dict = new StringCount();
+
+const pushByte = (buffer, byte) => {
+  buffer.u8[buffer.offset] = byte;
+  buffer.offset += 1;
 };
 
-const UINT32 = 0x02;
-const u32 = new Uint32Array(1);
-const u32_u8 = new Uint8Array(i32.buffer);
-const writeUint32 = (u8, offset, value) => {
-  writeId(u8, offset, UINT32);
-  u32[0] = value;
+const pushBytePlus = (buffer, byte, value) => {
+  const {u8, offset} = buffer;
+  u8[offset] = byte;
+  u8[offset + 1] = value - byte;
+  buffer.offset += 2;
+};
+
+const pushShort = (buffer, type, short) => {
+  const {u8, offset} = buffer;
+  u16[0] = short;
+  u8[offset] = type;
+  u8[offset + 1] = u16_u8[0];
+  u8[offset + 2] = u16_u8[1];
+  buffer.offset += 3;
+};
+
+const pushWord = (buffer, type, word) => {
+  const {u8, offset} = buffer;
+  u32[0] = word;
+  u8[offset] = type;
   u8[offset + 1] = u32_u8[0];
   u8[offset + 2] = u32_u8[1];
   u8[offset + 3] = u32_u8[2];
   u8[offset + 4] = u32_u8[3];
-  return 5;
+  buffer.offset += 5;
 };
 
-const f64 = new Float64Array(1);
-const f64_u8 = new Uint8Array(f64.buffer);
-const writeFloat64 = (u8, offset, value) => {
-  writeId(u8, offset, FLOAT64);
+const pushWide = (buffer, type, wide) => {
+  const {u8, offset} = buffer;
+  u8[offset] = type;
+  u32[0] = wide[0];
+  u8[offset + 1] = u32_u8[0];
+  u8[offset + 2] = u32_u8[1];
+  u8[offset + 3] = u32_u8[2];
+  u8[offset + 4] = u32_u8[3];
+  u32[0] = wide[1];
+  u8[offset + 5] = u32_u8[0];
+  u8[offset + 6] = u32_u8[1];
+  u8[offset + 7] = u32_u8[2];
+  u8[offset + 8] = u32_u8[3];
+  buffer.offset += 9;
+};
+
+const pushBuffer = (buffer, type, value) => {
+  const {u8, offset} = buffer;
+  u8[offset] = type;
+  switch (value.length) {
+  case 1:
+    u8[offset + 1] = value[0];
+    break;
+
+  case 2:
+    u8[offset + 1] = value[0];
+    u8[offset + 2] = value[1];
+    break;
+
+  case 4:
+    u8[offset + 1] = value[0];
+    u8[offset + 2] = value[1];
+    u8[offset + 3] = value[2];
+    u8[offset + 4] = value[3];
+    break;
+
+  default:
+    for (let i = 0; i < value.length; i++) {
+      u8[offset + i + 1] = value[i];
+    }
+    break;
+  }
+  buffer.offset += 1 + value.length;
+};
+
+const writeDictByte = (buffer, value) => {
+  pushByte(buffer, DICT_PREFIX | value);
+};
+
+const writeDictBytePlus = (buffer, value) => {
+  pushBytePlus(buffer, DICT_1BYTE, value);
+};
+
+const writeDictShort = (buffer, value) => {
+  pushShort(buffer, DICT_2BYTE, value);
+};
+
+const writeDictWord = (buffer, value) => {
+  pushWord(buffer, DICT_4BYTE, value);
+};
+
+const writeDict = (buffer, dictIndex) => {
+  // let newDictIndex = dict.heap.content.indexOf(value);
+  // let newDictIndex = dict.heap.contentIndex.get(value);
+  // newDictIndex = dictIndex - newDictIndex;
+
+  if (dictIndex < DICT_0BYTE_MAX) {
+    writeDictByte(buffer, dictIndex);
+  }
+  else if (dictIndex < DICT_1BYTE_MAX) {
+    writeDictBytePlus(buffer, dictIndex);
+  }
+  else if (dictIndex < DICT_2BYTE_MAX) {
+    writeDictShort(buffer, dictIndex);
+  }
+  else {
+    writeDictWord(buffer, dictIndex);
+  }
+};
+
+const writeStringLengthByte = (buffer, value) => {
+  pushByte(buffer, STRING_PREFIX | value);
+};
+
+const writeStringLengthBytePlus = (buffer, value) => {
+  const {u8, offset} = buffer;
+  u8[offset] = STRING_1BYTE;
+  u8[offset + 1] = value - (BUFFER_1BYTE & STRING_BIT_MASK);
+  buffer.offset += 2;
+};
+
+const writeStringLengthShort = (buffer, value) => {
+  pushShort(buffer, STRING_2BYTE, value);
+};
+
+const writeStringLengthWord = (buffer, value) => {
+  pushWord(buffer, STRING_4BYTE, value);
+};
+
+const writeStringBody = (buffer, value) => {
+  buffer.offset += buffer.u8_node.utf8Write(value, buffer.offset);
+};
+
+const writeString = (buffer, value) => {
+  let dictIndex = buffer.dict.heap.contentIndex.get(value)
+  buffer.dict.use(value);
+
+  // if (dict.counts.get(value) > 1) {
+  if (dictIndex >= 0) {
+    writeDict(buffer, value);
+  }
+  else if (typeof value === 'string') {
+    length = Buffer.byteLength(value);
+    if (length === 0) {
+      console.log('empty');
+      return writeEmptyString(buffer);
+    }
+    else if (length < (BUFFER_1BYTE & STRING_BIT_MASK)) {
+      console.log('partial byte');
+      writeStringLengthByte(buffer, length);
+    }
+    else if (length < 0xff + (BUFFER_1BYTE & STRING_BIT_MASK)) {
+      console.log('byte');
+      writeStringLengthBytePlus(buffer, length);
+    }
+    else if (length < 0x10000) {
+      console.log('short');
+      writeStringLengthShort(buffer, length);
+    }
+    else {
+      console.log('word');
+      writeStringLengthWord(buffer, length);
+    }
+
+    writeStringBody(buffer, value);
+  }
+};
+
+const writeArray = (buffer, value) => {
+  if (value.length < (OBJECT_1BYTE & OBJECT_BIT_MASK)) {
+    pushByte(buffer, ARRAY_PREFIX | value.length);
+  }
+  else if (value.length < 0x100) {
+    pushByte(buffer, ARRAY_1BYTE);
+    pushByte(buffer, value.length);
+  }
+  else if (value.length < 0x10000) {
+    pushShort(buffer, ARRAY_1BYTE, value.length);
+  }
+  for (let i = 0; i < value.length; i++) {
+    write(buffer, value[i]);
+  }
+};
+
+const writeObject = (buffer, value) => {
+  const keys = Object.keys(value);
+  if (keys.length < (OBJECT_1BYTE & OBJECT_BIT_MASK)) {
+    pushByte(buffer, OBJ_PREFIX_PREFIX | keys.length);
+  }
+  else {
+    pushWord(buffer, OBJ_PREFIX_BYTE, keys.length);
+  }
+  for (let i = 0; i < keys.length; i++) {
+    writeString(buffer, keys[i]);
+    write(buffer, value[keys[i]]);
+  }
+};
+
+const writeObjectArray = (buffer, value) => {
+  if (value === null) {
+    writeNull(buffer);
+  }
+  else if (Array.isArray(value)) {
+    writeArray(buffer, value);
+  }
+  else {
+    writeObject(buffer, value);
+  }
+};
+
+const writeUint6 = (buffer, value) => pushByte(buffer, VARIED_PREFIX | value);
+
+const writeUint8Plus = (buffer, value) => {
+  const {u8, offset} = buffer;
+  u8[offset] = UINT8_PLUS;
+  u8[offset + 1] = value - UINT6_MAX;
+  buffer.offset += 2;
+};
+
+const writeUint16 = (buffer, value) => pushShort(buffer, UINT16, value);
+
+const writeUint32 = (buffer, value) => pushWord(buffer, UINT32, value);
+
+const writeInt8 = (buffer, value) => {
+  i8[0] = value;
+  pushBuffer(buffer, INT8, i8_u8);
+};
+
+const writeInt16 = (buffer, value) => {
+  i16[0] = value;
+  pushBuffer(buffer, INT16, i16_u8);
+};
+
+const writeInt32 = (buffer, value) => {
+  i32[0] = value;
+  pushBuffer(buffer, INT32, i32_u8);
+};
+
+const writeFloat64 = (buffer, value) => {
+  // f64[0] = value;
+  // pushWide(buffer, FLOAT64, f64_u32);
+  const {u8, offset} = buffer;
+  u8[offset] = FLOAT64;
   f64[0] = value;
   u8[offset + 1] = f64_u8[0];
   u8[offset + 2] = f64_u8[1];
@@ -144,151 +523,215 @@ const writeFloat64 = (u8, offset, value) => {
   u8[offset + 6] = f64_u8[5];
   u8[offset + 7] = f64_u8[6];
   u8[offset + 8] = f64_u8[7];
-  return 9;
+  buffer.offset += 9;
 };
 
-const writeLength = (u8, offset, length) => {
-  return writeUint32(u8, offset, length);
-};
+const MAX_INT = Math.pow(2, 30);
+const MIN_INT = -Math.pow(2, 31);
 
-let _encoder;
-const writeUtf8 = (u8, offset, value) => {
-  const dictIndex = DICTIONARY.indexOf(value);
-  if (dictIndex !== -1) {
-    let j = 0;
-    if (dictIndex < 16) {
-      j += writeId(u8, offset + j, DICT | (dictIndex << 3));
+const writeNumber = (buffer, value) => {
+  if ((value | 0) === value && value >= INT32_MIN && value <= UINT32_MAX) {
+    if (value >= 0) {
+      if (value <= UINT6_MAX) {
+        writeUint6(buffer, value);
+      }
+      else if (value <= UINT8_PLUS_MAX) {
+        writeUint8Plus(buffer, value);
+      }
+      else if (value <= UINT16_MAX) {
+        writeUint16(buffer, value);
+      }
+      else {
+        writeUint32(buffer, value);
+      }
     }
     else {
-      j += writeId(u8, offset + j, DICT | 0x80);
-      j += writeUint32(u8, offset + j, dictIndex);
+      if (value >= INT8_MIN) {
+        writeInt8(buffer, value);
+      }
+      else if (value >= INT16_MIN) {
+        writeInt16(buffer, value);
+      }
+      else {
+        writeInt32(buffer, value);
+      }
     }
-
-    return j;
-  }
-
-  if (!_encoder) {
-    _encoder = new TextEncoder();
-  }
-  const enc = _encoder.encode(value);
-  const length = enc.length;
-  let j = 0;
-  if (length < 16) {
-    j += writeId(u8, offset + j, UTF8 | (length << 3));
   }
   else {
-    j += writeId(u8, offset + j, UTF8 | 0x80);
-    j += writeLength(u8, offset + j, length);
-  }
-  let latin = true;
-  for (let i = 0; i < length; i++) {
-    latin = latin && ((enc[i] & 0x80) === 0);
-    u8[offset + j + i] = enc[i];
-  }
-  // if (latin) {
-  //   u8[offset] = (u8[offset] & 0xf8) | STR7;
-  // }
-  return j + length;
-};
-
-const writeObject = (u8, offset, value) => {
-  const keys = Object.keys(value);
-  let j = 0;
-  if (keys.length < 16) {
-    j += writeId(u8, offset + j, OBJ | (keys.length << 3));
-  }
-  else {
-    j += writeId(u8, offset + j, OBJ | 0x80);
-    j += writeLength(u8, offset + j, keys.length);
-  }
-  for (let i = 0; i < keys.length; i++) {
-    j += writeUtf8(u8, offset + j, keys[i]);
-    j += write(u8, offset + j, value[keys[i]]);
-  }
-  return j;
-};
-
-const writeArray = (u8, offset, value) => {
-  let j = 0;
-  if (value.length < 16) {
-    j += writeId(u8, offset + j, ARY | (value.length << 3));
-  }
-  else {
-    j += writeId(u8, offset + j, ARY | 0x80);
-    j += writeLength(u8, offset + j, value.length);
-  }
-  for (let i = 0; i < value.length; i++) {
-    j += write(u8, offset + j, value[i]);
-  }
-  return j;
-};
-
-const write = (u8, offset, value) => {
-  if (value === null) {
-    return writeNull(u8, offset, value);
-  }
-  switch (typeof value) {
-  case 'boolean':
-    return writeBoolean(u8, offset, value);
-  case 'number':
-    if ((value | 0) === value) {
-      return writeInt32(u8, offset, value);
-    }
-    return writeFloat64(u8, offset, value);
-  case 'string':
-    return writeUtf8(u8, offset, value);
-  case 'object':
-    if (Array.isArray(value)) {
-      return writeArray(u8, offset, value);
-    }
-    return writeObject(u8, offset, value);
-  default:
-    return writeNull(u8, offset, value);
+    writeFloat64(buffer, value);
   }
 };
 
-const readBaseId = (u8, offset) => {
-  return u8[offset] & 0x07;
+const writeBoolean = (buffer, value) => pushByte(buffer, value === true ? TRUE : FALSE);
+
+const writeNull = buffer => pushByte(buffer, NULL);
+
+const writeEmptyString = buffer => pushByte(buffer, STRING_EMPTY);
+
+const write = (buffer, value) => {
+  if (typeof value === 'string') writeString(buffer, value);
+  else if (typeof value === 'object') writeObjectArray(buffer, value);
+  else if (typeof value === 'number') writeNumber(buffer, value);
+  else if (typeof value === 'boolean') writeBoolean(buffer, value);
 };
 
-const readHighBit = (u8, offset) => {
-  return u8[offset] & 0x80;
+// const dict = new StringCount();
+
+const peekType = buffer => {
+  return buffer.u8[buffer.offset];
 };
 
-const readSmallLength = (u8, offset) => {
-  return (u8[offset] & 0x78) >> 3;
+const peekByte = buffer => {
+  return buffer.u8[buffer.offset];
 };
 
-const readNull = () => {
-  readNull.size = 1;
-  return null;
+const popByte = buffer => {
+  return buffer.u8[buffer.offset++];
 };
 
-const readBoolean = (u8, offset) => {
-  readBoolean.size = 1;
-  return (u8[offset] & TRUE) === TRUE;
+const popBytePlus = buffer => {
+  buffer.offset += 2;
+  const {u8, offset} = buffer;
+  const type = u8[offset - 2];
+  return u8[offset - 1] + type;
 };
 
-const readInt32 = (u8, offset) => {
-  readInt32.size = 5;
-  i32_u8[0] = u8[offset + 1];
-  i32_u8[1] = u8[offset + 2];
-  i32_u8[2] = u8[offset + 3];
-  i32_u8[3] = u8[offset + 4];
-  return i32[0];
+const popShort = buffer => {
+  const {u8, offset} = buffer;
+  buffer.offset += 3;
+  u16_u8[0] = u8[offset + 1];
+  u16_u8[1] = u8[offset + 2];
+  return u16[0];
 };
 
-const readUint32 = (u8, offset) => {
-  readUint32.size = 5;
+const popWord = buffer => {
+  const {u8, offset} = buffer;
+  buffer.offset += 5;
+  u32_u8[0] = u8[offset + 1];
+  u32_u8[1] = u8[offset + 2];
+  u32_u8[1] = u8[offset + 3];
+  u32_u8[1] = u8[offset + 4];
+  return u32[0];
+};
+
+const popWide = (buffer, wide = []) => {
+  const {u8, offset} = buffer;
+  buffer.offset += 9;
   u32_u8[0] = u8[offset + 1];
   u32_u8[1] = u8[offset + 2];
   u32_u8[2] = u8[offset + 3];
   u32_u8[3] = u8[offset + 4];
+  wide[0] = u32[0];
+  u32_u8[0] = u8[offset + 5];
+  u32_u8[1] = u8[offset + 6];
+  u32_u8[2] = u8[offset + 7];
+  u32_u8[3] = u8[offset + 8];
+  wide[1] = u32[1];
+  return wide;
+};
+
+const readDictByte = buffer => {
+  return popByte(buffer) & DICT_BIT_MASK;
+};
+
+const readDictBytePlus = buffer => {
+  return popBytePlus(buffer);
+};
+
+const readDictShort = buffer => {
+  return popShort(buffer);
+};
+
+const readDictWord = buffer => {
+  return popWord(buffer);
+};
+
+const readDict = buffer => {
+  const type = peekByte(buffer);
+  if (type & DICT_BIT_MASK < DICT_1BYTE & DICT_BIT_MASK) {
+    return buffer.dict.string(readDictByte(buffer));
+  }
+  else if (type === DICT_1BYTE) {
+    return buffer.dict.string(readDictBytePlus(buffer));
+  }
+  else if (type === DICT_2BYTE) {
+    return buffer.dict.string(readDictShort(buffer));
+  }
+  else {
+    return buffer.dict.string(readDictWord(buffer));
+  }
+};
+
+const readUint6 = buffer => {
+  return popByte(buffer) & UINT6_BIT_MASK;
+};
+
+const readUint8Plus = buffer => {
+  const {u8, offset} = buffer;
+  buffer.offset += 2;
+  return UINT6_MAX + u8[offset + 1];
+};
+
+const readUint16 = buffer => {
+  const {u8, offset} = buffer;
+  u16_u8[0] = u8[offset + 1];
+  u16_u8[1] = u8[offset + 2];
+  buffer.offset += 3;
+  return u16[0];
+};
+
+const readUint32 = buffer => {
+  const {u8, offset} = buffer;
+  u32_u8[0] = u8[offset + 1];
+  u32_u8[1] = u8[offset + 2];
+  u32_u8[2] = u8[offset + 3];
+  u32_u8[3] = u8[offset + 4];
+  buffer.offset += 5;
   return u32[0];
 };
 
-const readFloat64 = (u8, offset) => {
-  readFloat64.size = 9;
+const readInt8 = buffer => {
+  const {u8, offset} = buffer;
+  i8_u8[0] = u8[offset + 1];
+  buffer.offset += 2;
+  return i8[0];
+};
+
+const readInt16 = buffer => {
+  const {u8, offset} = buffer;
+  i16_u8[0] = u8[offset + 1];
+  i16_u8[1] = u8[offset + 2];
+  buffer.offset += 3;
+  return i16[0];
+};
+
+const readInt32 = buffer => {
+  const {u8, offset} = buffer;
+  i32_u8[0] = u8[offset + 1];
+  i32_u8[1] = u8[offset + 2];
+  i32_u8[2] = u8[offset + 3];
+  i32_u8[3] = u8[offset + 4];
+  buffer.offset += 5;
+  return i32[0];
+};
+
+const readFloat16 = buffer => {
+  
+};
+
+const readFloat32 = buffer => {
+  const {u8, offset} = buffer;
+  f32_u8[0] = u8[offset + 1];
+  f32_u8[1] = u8[offset + 2];
+  f32_u8[2] = u8[offset + 3];
+  f32_u8[3] = u8[offset + 4];
+  buffer.offset += 5;
+  return f32[0];
+};
+
+const readFloat64 = buffer => {
+  // return (popWide(buffer, f64_u32), f64[0]);
+  const {u8, offset} = buffer;
   f64_u8[0] = u8[offset + 1];
   f64_u8[1] = u8[offset + 2];
   f64_u8[2] = u8[offset + 3];
@@ -297,641 +740,310 @@ const readFloat64 = (u8, offset) => {
   f64_u8[5] = u8[offset + 6];
   f64_u8[6] = u8[offset + 7];
   f64_u8[7] = u8[offset + 8];
+  buffer.offset += 9;
   return f64[0];
 };
 
-const readBigLength = (u8, offset) => {
-  const result = readUint32(u8, offset);
-  readBigLength.size = readUint32.size;
-  return result;
+const readNull = buffer => {
+  return (popByte(buffer), null);
 };
 
-const readLength = (u8, offset) => {
-  let length;
-  if (u8[offset] & 0x80) {
-    u32_u8[0] = u8[offset + 1];
-    u32_u8[1] = u8[offset + 2];
-    u32_u8[2] = u8[offset + 3];
-    u32_u8[3] = u8[offset + 4];
-    result = u32[0];
-    readLength.size = 5;
+const readFalse = buffer => {
+  return (popByte(buffer), false);
+};
+
+const readTrue = buffer => {
+  return (popByte(buffer), true);
+};
+
+const readEmptyString = buffer => {
+  return (popByte(buffer), '');
+};
+
+const readVaried = buffer => {
+  const type = peekByte(buffer);
+  if ((type & UINT6_BIT_MASK) <= UINT6_MAX) {
+    return readUint6(buffer);
+  }
+
+  switch (type) {
+    case UINT8_PLUS:
+      return readUint8Plus(buffer);
+
+    case UINT16:
+      return readUint16(buffer);
+
+    case UINT32:
+      return readUint32(buffer);
+
+    case INT8:
+      return readInt8(buffer);
+
+    case INT16:
+      return readInt16(buffer);
+
+    case INT32:
+      return readInt32(buffer);
+
+    case FLOAT16:
+      return readFloat16(buffer);
+
+    case FLOAT32:
+      return readFloat32(buffer);
+
+    case FLOAT64:
+      return readFloat64(buffer);
+
+    case NULL:
+      return readNull(buffer);
+
+    case FALSE:
+      return readFalse(buffer);
+
+    case TRUE:
+      return readTrue(buffer);
+
+    case STRING_EMPTY:
+      return readEmptyString(buffer);
+  }
+};
+
+const readStringLengthByte = buffer => {
+  return popByte(buffer) & STRING_BIT_MASK;
+};
+
+const readStringLengthBytePlus = buffer => {
+  const {u8, offset} = buffer;
+  buffer.offset += 2;
+  return (BUFFER_1BYTE & STRING_BIT_MASK) + u8[offset + 1];
+};
+
+const readStringLengthShort = buffer => {
+  return popShort(buffer);
+};
+
+const readStringLengthWord = buffer => {
+  return popWord(buffer);
+};
+
+const readStringBody = (buffer, length) => {
+  const {offset, u8_node} = buffer;
+  const end = offset + length;
+  buffer.offset = end;
+  return u8_node.utf8Slice(offset, end);
+};
+
+const readString = buffer => {
+  const type = peekByte(buffer);
+  if ((type & STRING_BIT_MASK) < (BUFFER_1BYTE & STRING_BIT_MASK)) {
+    console.log('partial byte');
+    return readStringBody(buffer, readStringLengthByte(buffer));
+  }
+  else if (type === STRING_1BYTE) {
+    console.log('byte');
+    return readStringBody(buffer, readStringLengthBytePlus(buffer));
+  }
+  else if (type === STRING_2BYTE) {
+    console.log('short');
+    return readStringBody(buffer, readStringLengthShort(buffer));
   }
   else {
-    length = (u8[offset] & 0x78) >> 3;
-    readLength.size = 1;
+    console.log('word');
+    return readStringBody(buffer, readStringLengthWord(buffer));
   }
-  return length;
 };
 
-let _decoder;
-const readUtf8 = (u8, offset) => {
-  let length = readLength(u8, offset);
-  let j = readLength.size;
-
-  if (!_decoder) {
-    _decoder = new TextDecoder();
-  }
-
-  let out = '';
-  let pos = offset + j;
-  let end = offset + j + length
-
-  while (pos < end) {
-    const byte1 = u8[pos++];
-    if (byte1 === 0) {
-      break;  // NULL
-    }
-
-    if ((byte1 & 0x80) === 0) {  // 1-byte
-      out += CHARS_127[byte1];
-    } else if ((byte1 & 0xe0) === 0xc0) {  // 2-byte
-      const byte2 = u8[pos++] & 0x3f;
-      out += String.fromCharCode(((byte1 & 0x1f) << 6) | byte2);
-    } else if ((byte1 & 0xf0) === 0xe0) {
-      const byte2 = u8[pos++] & 0x3f;
-      const byte3 = u8[pos++] & 0x3f;
-      out += String.fromCharCode(((byte1 & 0x1f) << 12) | (byte2 << 6) | byte3);
-    } else if ((byte1 & 0xf8) === 0xf0) {
-      const byte2 = u8[pos++] & 0x3f;
-      const byte3 = u8[pos++] & 0x3f;
-      const byte4 = u8[pos++] & 0x3f;
-
-      // this can be > 0xffff, so possibly generate surrogates
-      let codepoint = ((byte1 & 0x07) << 0x12) | (byte2 << 0x0c) | (byte3 << 0x06) | byte4;
-      if (codepoint > 0xffff) {
-        // codepoint &= ~0x10000;
-        codepoint -= 0x10000;
-        out.push((codepoint >>> 10) & 0x3ff | 0xd800)
-        codepoint = 0xdc00 | codepoint & 0x3ff;
-      }
-      out += String.fromCharCode(codepoint);
-    } else {
-      // FIXME: we're ignoring this
-    }
-  }
-
-  readUtf8.size = j + length;
-  return out;
+const readArrayLengthByte = buffer => {
+  return popByte(buffer) & OBJECT_BIT_MASK;
 };
 
-const readObject = (u8, offset) => {
-  let length = readLength(u8, offset);
-  let j = readLength.size;
+const readArrayLengthBytePlus = buffer => {
+  return popBytePlus(buffer);
+};
 
-  let o = {};
+const readArrayLengthShort = buffer => {
+  return popShort(buffer);
+};
+
+const readArrayLengthWord = buffer => {
+  return popWord(buffer);
+};
+
+const readArrayBody = (buffer, length) => {
+  const body = [];
   for (let i = 0; i < length; i++) {
-    const key = readUtf8(u8, offset + j);
-    j += readUtf8.size;
-    const value = read(u8, offset + j);
-    j += read.size;
-    o[key] = value;
+    body.push(read(buffer));
   }
-
-  readObject.size = j;
-  return o;
+  return body;
 };
 
-const readArray = (u8, offset) => {
-  let length = readLength(u8, offset);
-  let j = readLength.size;
+const readArray = buffer => {
+  const type = peekType(buffer);
+  if ((type & OBJECT_BIT_MASK) < (OBJECT_1BYTE & OBJECT_BIT_MASK)) {
+    return readArrayBody(buffer, readArrayLengthByte(buffer));
+  }
+  else if (type === ARRAY_1BYTE) {
+    return readArrayBody(buffer, readArrayLengthBytePlus(buffer));
+  }
+  else if (type === ARRAY_2BYTE) {
+    return readArrayBody(buffer, readArrayLengthShort(buffer));
+  }
+  else if (type === ARRAY_4BYTE) {
+    return readArrayBody(buffer, readArrayLengthWord(buffer));
+  }
+  else {
+    throw new Error(`Cannot read array at ${buffer.offset}. Uncertain length.`);
+  }
+};
 
-  let a = [];
+const readObjectLengthByte = buffer => {
+  return popByte(buffer) & OBJECT_BIT_MASK;
+};
+
+const readObjectLengthBytePlus = buffer => {
+  return popBytePlus(buffer);
+};
+
+const readObjectLengthShort = buffer => {
+  return popShort(buffer);
+};
+
+const readObjectLengthWord = buffer => {
+  return popWord(buffer);
+};
+
+const readObjectBody = (buffer, length) => {
+  const body = {};
   for (let i = 0; i < length; i++) {
-    a.push(read(u8, offset + j));
-    j += read.size;
+    const key = readString(buffer);
+    body[key] = read(buffer);
   }
-
-  readArray.size = j;
-  return a;
+  return body;
 };
 
-class ReadCell {
-  constructor() {
-    this.id = NULL;
-    this.result = null;
-    this.objectKey = null;
-    this.index = 0;
-    this.length = 0;
+const readObject = buffer => {
+  const type = peekType(buffer);
+  if (type & OBJECT_BIT_MASK < OBJECT_1BYTE & OBJECT_BIT_MASK) {
+    return readObjectBody(buffer, readObjectLengthByte(buffer));
   }
-
-  set(id) {
-    this.id = id;
-    this.result = null;
+  else if (type === OBJECT_1BYTE) {
+    return readObjectBody(buffer, readObjectLengthBytePlus(buffer));
   }
-}
-
-class ReadStack {
-  constructor() {
-    this.depth = 0;
-    this.stack = [new ReadCell()];
+  else if (type === OBJECT_2BYTE) {
+    return readObjectBody(buffer, readObjectLengthShort(buffer));
   }
-
-  get cell() {
-    return this.stack[this.depth];
+  else if (type === OBJECT_4BYTE) {
+    return readObjectBody(buffer, readObjectLengthWord(buffer));
   }
-
-  get result() {
-    return this.stack[this.depth + 1].result;
+  else {
+    throw new Error(`Cannot read array at ${buffer.offset}.`);
   }
-
-  reset() {
-    this.depth = 0;
-  }
-
-  push(u8, offset) {
-    this.depth += 1;
-    const id = u8[offset] & 0x07;
-    if (id >= OBJ) {
-      if (this.depth >= this.stack.length) {
-        this.stack.push(new ReadCell());
-      }
-      this.stack[this.depth].set(id);
-    }
-    return id;
-  }
-
-  pop(result) {
-    this.stack[this.depth].result = result;
-    this.depth -= 1;
-  }
-}
-
-const _readUtf8 = (u8, pos, end) => {
-  let out = '';
-
-  while (pos < end) {
-    const byte1 = u8[pos];
-
-    if ((byte1 & 0x80) === 0) {  // 1-byte
-      out += CHARS_127[byte1];
-      pos += 1;
-    } else if ((byte1 & 0xe0) === 0xc0) {  // 2-byte
-      const byte2 = u8[pos + 1] & 0x3f;
-      pos += 2;
-      out += String.fromCharCode(((byte1 & 0x1f) << 6) | byte2);
-    } else if ((byte1 & 0xf0) === 0xe0) {
-      const byte2 = u8[pos + 1] & 0x3f;
-      const byte3 = u8[pos + 2] & 0x3f;
-      pos += 3;
-      out += String.fromCharCode(((byte1 & 0x1f) << 12) | (byte2 << 6) | byte3);
-    } else if ((byte1 & 0xf8) === 0xf0) {
-      const byte2 = u8[pos + 1] & 0x3f;
-      const byte3 = u8[pos + 2] & 0x3f;
-      const byte4 = u8[pos + 3] & 0x3f;
-      pos += 4;
-
-      // this can be > 0xffff, so possibly generate surrogates
-      let codepoint = ((byte1 & 0x07) << 0x12) | (byte2 << 0x0c) | (byte3 << 0x06) | byte4;
-      if (codepoint > 0xffff) {
-        // codepoint &= ~0x10000;
-        codepoint -= 0x10000;
-        const surrogate = (codepoint >>> 10) & 0x3ff | 0xd800; // ???
-        codepoint = 0xdc00 | codepoint & 0x3ff;
-        out += String.fromCharCode(surrogate, codepoint);
-      }
-      else {
-        out += String.fromCharCode(codepoint);
-      }
-    } else {
-      // FIXME: we're ignoring this
-    }
-  }
-
-  return out;
 };
 
-const readStack = new ReadStack();
-const stringOut = [];
-const read = (u8, offset) => {
-  let result, length, j, id, popId;
-  readStack.reset();
-  id = readStack.push(u8, offset);
-  while (readStack.depth) {
-    if ((id & 0x04) === 0x04) {
-      if (id === UTF8) {
-        if (u8[offset] & 0x80) {
-          u32_u8[0] = u8[offset + 2];
-          u32_u8[1] = u8[offset + 3];
-          u32_u8[2] = u8[offset + 4];
-          u32_u8[3] = u8[offset + 5];
-          length = u32[0];
-          offset += 6;
-        }
-        else {
-          length = (u8[offset] & 0x78) >> 3;
-          offset += 1;
-        }
-
-        let out = '';
-        let pos = offset;
-        const end = offset + length
-
-        while (pos < end) {
-          const byte1 = u8[pos];
-
-          if ((byte1 & 0x80) === 0) {  // 1-byte
-            out += CHARS_127[byte1];
-            pos += 1;
-          } else if ((byte1 & 0xe0) === 0xc0) {  // 2-byte
-            const byte2 = u8[pos + 1] & 0x3f;
-            pos += 2;
-            out += String.fromCharCode(((byte1 & 0x1f) << 6) | byte2);
-          } else if ((byte1 & 0xf0) === 0xe0) {
-            const byte2 = u8[pos + 1] & 0x3f;
-            const byte3 = u8[pos + 2] & 0x3f;
-            pos += 3;
-            out += String.fromCharCode(((byte1 & 0x1f) << 12) | (byte2 << 6) | byte3);
-          } else if ((byte1 & 0xf8) === 0xf0) {
-            const byte2 = u8[pos + 1] & 0x3f;
-            const byte3 = u8[pos + 2] & 0x3f;
-            const byte4 = u8[pos + 3] & 0x3f;
-            pos += 4;
-
-            // this can be > 0xffff, so possibly generate surrogates
-            let codepoint = ((byte1 & 0x07) << 0x12) | (byte2 << 0x0c) | (byte3 << 0x06) | byte4;
-            if (codepoint > 0xffff) {
-              // codepoint &= ~0x10000;
-              codepoint -= 0x10000;
-              const surrogate = (codepoint >>> 10) & 0x3ff | 0xd800; // ???
-              codepoint = 0xdc00 | codepoint & 0x3ff;
-              out += String.fromCharCode(surrogate, codepoint);
-            }
-            else {
-              out += String.fromCharCode(codepoint);
-            }
-          } else {
-            // FIXME: we're ignoring this
-          }
-        }
-
-        offset += length;
-        result = out;
-        readStack.depth -= 1;
-        id = popId;
-      }
-      else if (id === STR7) {
-        if (u8[offset] & 0x80) {
-          u32_u8[0] = u8[offset + 2];
-          u32_u8[1] = u8[offset + 3];
-          u32_u8[2] = u8[offset + 4];
-          u32_u8[3] = u8[offset + 5];
-          length = u32[0];
-          offset += 6;
-        }
-        else {
-          length = (u8[offset] & 0x78) >> 3;
-          offset += 1;
-        }
-
-        let out = '';
-        let pos = offset;
-        const end = offset + length
-
-        while (pos < end) {
-          out += CHARS_127[u8[pos]];
-          pos += 1;
-        }
-
-        offset += length;
-        result = out;
-        readStack.depth -= 1;
-        id = popId;
-      }
-      else if (id === DICT) {
-        let dictIndex;
-        if (u8[offset] & 0x80) {
-          u32_u8[0] = u8[offset + 2];
-          u32_u8[1] = u8[offset + 3];
-          u32_u8[2] = u8[offset + 4];
-          u32_u8[3] = u8[offset + 5];
-          dictIndex = u32[0];
-          offset += 6;
-        }
-        else {
-          dictIndex = (u8[offset] & 0x78) >> 3;
-          offset += 1;
-        }
-
-        result = DICTIONARY[dictIndex];
-        readStack.depth -= 1;
-        id = popId;
-      }
-      else if (id === OBJ) {
-        const cell = readStack.cell;
-        if (cell.result === null) {
-          cell.result = {};
-          cell.index = 0;
-          if (u8[offset] & 0x80) {
-            u32_u8[0] = u8[offset + 2];
-            u32_u8[1] = u8[offset + 3];
-            u32_u8[2] = u8[offset + 4];
-            u32_u8[3] = u8[offset + 5];
-            cell.length = u32[0];
-            offset += 6;
-          }
-          else {
-            cell.length = (u8[offset] & 0x78) >> 3;
-            offset += 1;
-          }
-        }
-
-        if (cell.index < cell.length) {
-          if (cell.index > 0) {
-            cell.result[cell.objectKey] = result;
-          }
-
-          id = u8[offset] & 0x07;
-
-          if (u8[offset] & 0x80) {
-            u32_u8[0] = u8[offset + 2];
-            u32_u8[1] = u8[offset + 3];
-            u32_u8[2] = u8[offset + 4];
-            u32_u8[3] = u8[offset + 5];
-            length = u32[0];
-            offset += 6;
-          }
-          else {
-            length = (u8[offset] & 0x78) >> 3;
-            offset += 1;
-          }
-
-          let out = '';
-          let pos = offset;
-          const end = offset + length
-
-          if (id === UTF8) {
-            while (pos < end) {
-              const byte1 = u8[pos];
-
-              if ((byte1 & 0x80) === 0) {  // 1-byte
-                out += CHARS_127[byte1];
-                pos += 1;
-              } else if ((byte1 & 0xe0) === 0xc0) {  // 2-byte
-                const byte2 = u8[pos + 1] & 0x3f;
-                pos += 2;
-                out += String.fromCharCode(((byte1 & 0x1f) << 6) | byte2);
-              } else if ((byte1 & 0xf0) === 0xe0) {
-                const byte2 = u8[pos + 1] & 0x3f;
-                const byte3 = u8[pos + 2] & 0x3f;
-                pos += 3;
-                out += String.fromCharCode(((byte1 & 0x1f) << 12) | (byte2 << 6) | byte3);
-              } else if ((byte1 & 0xf8) === 0xf0) {
-                const byte2 = u8[pos + 1] & 0x3f;
-                const byte3 = u8[pos + 2] & 0x3f;
-                const byte4 = u8[pos + 3] & 0x3f;
-                pos += 4;
-
-                // this can be > 0xffff, so possibly generate surrogates
-                let codepoint = ((byte1 & 0x07) << 0x12) | (byte2 << 0x0c) | (byte3 << 0x06) | byte4;
-                if (codepoint > 0xffff) {
-                  // codepoint &= ~0x10000;
-                  codepoint -= 0x10000;
-                  // out += String.fromCharCode((codepoint >>> 10) & 0x3ff | 0xd800); // ???
-                  codepoint = 0xdc00 | codepoint & 0x3ff;
-                }
-                out += String.fromCharCode(codepoint);
-              } else {
-                // FIXME: we're ignoring this
-              }
-            }
-
-            offset += length;
-          }
-          else if (id === STR7) {
-            while (pos < end) {
-              out += CHARS_127[u8[pos]];
-              pos += 1;
-            }
-
-            offset += length;
-          }
-          else if (id === DICT) {
-            out = DICTIONARY[length];
-          }
-
-          cell.objectKey = out;
-
-          popId = OBJ;
-          id = readStack.push(u8, offset);
-          cell.index += 1;
-        }
-        else {
-          if (cell.index > 0) {
-            cell.result[cell.objectKey] = result;
-          }
-          result = cell.result;
-          readStack.depth -= 1;
-          if (readStack.depth) {
-            id = readStack.cell.id;
-          }
-        }
-      }
-      else if (id === ARY) {
-        const cell = readStack.cell;
-        if (cell.result === null) {
-          cell.result = [];
-          cell.index = 0;
-          if (u8[offset] & 0x80) {
-            u32_u8[0] = u8[offset + 2];
-            u32_u8[1] = u8[offset + 3];
-            u32_u8[2] = u8[offset + 4];
-            u32_u8[3] = u8[offset + 5];
-            cell.length = u32[0];
-            offset += 6;
-          }
-          else {
-            cell.length = (u8[offset] & 0x78) >> 3;
-            offset += 1;
-          }
-        }
-        if (cell.index < cell.length) {
-          if (cell.index > 0) {
-            cell.result.push(result);
-          }
-
-          popId = ARY;
-          id = readStack.push(u8, offset);
-          cell.index += 1;
-        }
-        else {
-          if (cell.index > 0) {
-            cell.result.push(result);
-          }
-          result = cell.result;
-          readStack.depth -= 1;
-          if (readStack.depth) {
-            id = readStack.cell.id;
-          }
-        }
-      }
-    }
-    else if ((id & 0x02) === 0x02) {
-      if (id === INT32) {
-        i32_u8[0] = u8[offset + 1];
-        i32_u8[1] = u8[offset + 2];
-        i32_u8[2] = u8[offset + 3];
-        i32_u8[3] = u8[offset + 4];
-        offset += 5;
-        result = i32[0];
-        readStack.depth -= 1;
-        id = popId;
-      }
-      else if (id === FLOAT64) {
-        f64_u8[0] = u8[offset + 1];
-        f64_u8[1] = u8[offset + 2];
-        f64_u8[2] = u8[offset + 3];
-        f64_u8[3] = u8[offset + 4];
-        f64_u8[4] = u8[offset + 5];
-        f64_u8[5] = u8[offset + 6];
-        f64_u8[6] = u8[offset + 7];
-        f64_u8[7] = u8[offset + 8];
-        offset += 9;
-        result = f64[0];
-        readStack.depth -= 1;
-        id = popId;
-      }
-    }
-    else {
-      if (id === NULL) {
-        offset += 1;
-        result = null;
-        readStack.depth -= 1;
-        id = popId;
-      }
-      else if (id === BOOLEAN) {
-        result = (u8[offset] & TRUE) === TRUE;
-        offset += 1;
-        readStack.depth -= 1;
-      }
-    }
+const read = buffer => {
+  const type = peekType(buffer);
+  if ((type & DICT_MASK) === DICT_PREFIX) {
+    return readDict(buffer);
   }
-  return result;
+  else if ((type & VARIED_MASK) === VARIED_PREFIX) {
+    return readVaried(buffer);
+  }
+  else if ((type & STRING_MASK) === STRING_PREFIX) {
+    return readString(buffer);
+  }
+  else if ((type & OBJECT_MASK) === OBJECT_PREFIX) {
+    return readObject(buffer);
+  }
+  else if ((type & OBJECT_MASK) === ARRAY_PREFIX) {
+    return readArray(buffer);
+  }
 };
 
-const b = new Uint8Array(256 * 1024);
-b.slice(0, write(b, 0, [1, 2, 3]));
-read(b, 0);
+module.exports = {
+  load(u8) {
+    // console.log('load', u8.length);
+    const buffer = new Keypack().load(u8);
+    return read(buffer);
+  },
+  dump(value) {
+    const buffer = new Keypack();
+    write(buffer, value);
+    // console.log('dump', buffer.offset);
+    return buffer.save().slice(0, buffer.offset);
+  },
+};
 
-const testData = {"type":"NormalModule","constructor":{"data":{"type":"javascript/auto","request":"index.js","userRequest":"index.js","rawRequest":"index.js","loaders":[],"resource":"index.js","parser":{"type":"Parser","options":{},"sourceType":"auto","moduleType":"javascript/auto"},"generator":{"type":"JavascriptGenerator","moduleType":"javascript/auto","options":{}},"resolveOptions":{}}},"identifier":"index.js","assigned":{"factoryMeta":{},"issuer":null,"useSourceMap":false,"lineToLine":false},"build":{"built":true,"buildTimestamp":1518546698333,"buildMeta":{"exportsType":"namespace","providedExports":["default"]},"buildInfo":{"cacheable":true,"fileDependencies":["index.js"],"contextDependencies":[],"strict":true,"exportsArgument":"__webpack_exports__"},"warnings":[],"errors":[],"_source":{"type":"OriginalSource","value":"import is from './is';\n\nexport default is({});\n","name":"index.js"},"hash":"385d51f3c5d321e36f963e594282af3b","_lastSuccessfulBuildMeta":{"exportsType":"namespace","providedExports":["default"]}},"dependencyBlock":{"type":"DependenciesBlock","dependencies":[{"type":"HarmonyCompatibilityDependency","loc":{"start":{"line":-1,"column":0},"end":{"line":-1,"column":0},"index":-3}},{"type":"HarmonyInitDependency","loc":{"start":{"line":-1,"column":0},"end":{"line":-1,"column":0},"index":-2}},{"type":"ConstDependency","expression":"","range":[0,22],"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":22}}},{"type":"HarmonyImportSideEffectDependency","request":"./is","sourceOrder":1,"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":22}}},{"type":"HarmonyExportHeaderDependency","range":[39,45],"rangeStatement":[24,46],"loc":{"index":-1,"start":{"line":3,"column":0},"end":{"line":3,"column":22}}},{"type":"HarmonyExportExpressionDependency","range":[39,45],"rangeStatement":[24,46],"loc":{"index":-1,"start":{"line":3,"column":0},"end":{"line":3,"column":22}}},{"type":"HarmonyImportSpecifierDependency","request":"./is","sourceOrder":1,"id":"default","name":"is","range":[39,41],"strictExportPresence":false,"namespaceObjectAsContext":false,"callArgs":[{"type":"ObjectExpression","start":42,"end":44,"loc":{"start":{"line":3,"column":18},"end":{"line":3,"column":20}},"range":[42,44],"properties":[]}],"call":{"type":"CallExpression","start":39,"end":45,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":21}},"range":[39,45],"callee":{"type":"Identifier","start":39,"end":41,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":17}},"range":[39,41],"name":"is"},"arguments":[{"type":"ObjectExpression","start":42,"end":44,"loc":{"start":{"line":3,"column":18},"end":{"line":3,"column":20}},"range":[42,44],"properties":[]}]},"directImport":true,"loc":{"start":{"line":3,"column":15},"end":{"line":3,"column":17}}}],"variables":[],"blocks":[]},"source":{"_cachedSource":{"type":"CachedSource","source":{"type":"ReplaceSource","replacements":[[45,45,");",3],[39,40,"__WEBPACK_MODULE_REFERENCE__1_64656661756c74_call__",4],[24,38,"/* harmony default export */ var __WEBPACK_MODULE_DEFAULT_EXPORT__ = __webpack_exports__[\"default\"] = (",2],[24,38,"",1],[0,21,"",0]]},"cachedSource":"\n\n/* harmony default export */ var __WEBPACK_MODULE_DEFAULT_EXPORT__ = __webpack_exports__[\"default\"] = (__WEBPACK_MODULE_REFERENCE__1_64656661756c74_call__({}));\n","cachedMaps":{}},"_cachedSourceHash":"385d51f3c5d321e36f963e594282af3b-undefined","renderedHash":"385d51f3c5d321e36f96"}};
+const ORDER = [
+  // 'type', 'request', 'userRequest', 'rawRequest', 'resource', 'loaders', 'parser', 'options', 'sourceType', 'moduleType', 'generator', 'resolveOptions'
 
-const testDataString = '{"type":"javascript/auto","request":"index.js","userRequest":"index.js","rawRequest":"index.js","loaders":[],"resource":"index.js","parser":{"type":"Parser","options":{},"sourceType":"auto","moduleType":"javascript/auto"},"generator":{"type":"JavascriptGenerator","moduleType":"javascript/auto","options":{}},"resolveOptions":{}}';
-
-const testDataArray = new Uint8Array([
-  123, 34, 116, 121, 112, 101, 34, 58, 34, 106, 97, 118, 97, 115, 99, 114, 105, 112, 116, 47, 97, 117, 116, 111, 34,
-  44, 34, 114, 101, 113, 117, 101, 115, 116, 34, 58, 34, 105, 110, 100, 101, 120, 46, 106, 115, 34, 44, 34, 117, 115,
-  101, 114, 82, 101, 113, 117, 101, 115, 116, 34, 58, 34, 105, 110, 100, 101, 120, 46, 106, 115, 34, 44, 34, 114, 97,
-  119, 82, 101, 113, 117, 101, 115, 116, 34, 58, 34, 105, 110, 100, 101, 120, 46, 106, 115, 34, 44, 34, 108, 111, 97,
-  100, 101, 114, 115, 34, 58, 91, 93, 44, 34, 114, 101, 115, 111, 117, 114, 99, 101, 34, 58, 34, 105, 110, 100, 101,
-  120, 46, 106, 115, 34, 44, 34, 112, 97, 114, 115, 101, 114, 34, 58, 123, 34, 116, 121, 112, 101, 34, 58, 34, 80, 97,
-  114, 115, 101, 114, 34, 44, 34, 111, 112, 116, 105, 111, 110, 115, 34, 58, 123, 125, 44, 34, 115, 111, 117, 114, 99,
-  101, 84, 121, 112, 101, 34, 58, 34, 97, 117, 116, 111, 34, 44, 34, 109, 111, 100, 117, 108, 101, 84, 121, 112, 101,
-  34, 58, 34, 106, 97, 118, 97, 115, 99, 114, 105, 112, 116, 47, 97, 117, 116, 111, 34, 125, 44, 34, 103, 101, 110,
-  101, 114, 97, 116, 111, 114, 34, 58, 123, 34, 116, 121, 112, 101, 34, 58, 34, 74, 97, 118, 97, 115, 99, 114, 105,
-  112, 116, 71, 101, 110, 101, 114, 97, 116, 111, 114, 34, 44, 34, 109, 111, 100, 117, 108, 101, 84, 121, 112, 101, 34,
-  58, 34, 106, 97, 118, 97, 115, 99, 114, 105, 112, 116, 47, 97, 117, 116, 111, 34, 44, 34, 111, 112, 116, 105, 111,
-  110, 115, 34, 58, 123, 125, 125, 44, 34, 114, 101, 115, 111, 108, 118, 101, 79, 112, 116, 105, 111, 110, 115, 34, 58,
-  123, 125, 125
-]);
-
-
-function bench1(n) {
-  if (!_encoder) {
-    _encoder = new TextEncoder();
-  }
-  var start = process.hrtime();
-  while (n--) {
-    _encoder.encode(JSON.stringify(testData.constructor.data));
-  }
-  var end = process.hrtime();
-  return end[0] - start[0] + (end[1] - start[1]) / 1e9;
-}
-
-function bench2(n) {
-  var start = process.hrtime();
-  while (n--) {
-    write(b, 0, testData.constructor.data);
-  }
-  var end = process.hrtime();
-  return end[0] - start[0] + (end[1] - start[1]) / 1e9;
-}
-
-function bench3(n) {
-  if (!_decoder) {
-    _decoder = new TextDecoder();
-  }
-  var start = process.hrtime();
-  while (n--) {
-    JSON.parse(_decoder.decode(testDataArray));
-  }
-  var end = process.hrtime();
-  return end[0] - start[0] + (end[1] - start[1]) / 1e9;
-}
-
-function bench4(n) {
-  var start = process.hrtime();
-  while (n--) {
-    read(b, 0);
-  }
-  var end = process.hrtime();
-  return end[0] - start[0] + (end[1] - start[1]) / 1e9;
-}
-
-// function bench1(n) {
-//   if (!_encoder) {
-//     _encoder = new TextEncoder();
-//   }
-//   var start = performance.now();
-//   while (n--) {
-//     _encoder.encode(JSON.stringify(testData.constructor.data));
-//   }
-//   var end = performance.now();
-//   return end - start;
-// }
-//
-// function bench2(n) {
-//   var start = performance.now();
-//   while (n--) {
-//     write(b, 0, testData.constructor.data);
-//   }
-//   var end = performance.now();
-//   return end - start;
-// }
-//
-// function bench3(n) {
-//   if (!_decoder) {
-//     _decoder = new TextDecoder();
-//   }
-//   var start = performance.now();
-//   while (n--) {
-//     JSON.parse(_decoder.decode(testDataArray));
-//   }
-//   var end = performance.now();
-//   return end - start;
-// }
-//
-// function bench4(n) {
-//   var start = performance.now();
-//   while (n--) {
-//     read(b, 0);
-//   }
-//   var end = performance.now();
-//   return end - start;
-// }
-
-console.log(bench1(1e4));
-console.log(bench2(1e4));
-console.log(bench3(1e5));
-console.log(bench4(1e5));
-console.log(write(b, 0, testData.constructor.data));
-console.log(read(b, 0));
-console.log(write(b, 0, null), read(b, 0));
-console.log(write(b, 0, false), read(b, 0));
-console.log(write(b, 0, true), read(b, 0));
-console.log(write(b, 0, 0), read(b, 0));
-console.log(write(b, 0, 1), read(b, 0));
-console.log(write(b, 0, 0.5), read(b, 0));
-console.log(write(b, 0, '012345678912345'), read(b, 0));
-console.log((b[0] & 0x07) === STR7);
-console.log(write(b, 0, '0123456789123456'), read(b, 0));
-console.log(write(b, 0, {a: 1}), read(b, 0));
-console.log(write(b, 0, [1, 2, 3]), read(b, 0));
+  // 'type',
+  // 'constructor',
+  // 'data',
+  // 'request',
+  // 'userRequest',
+  // 'rawRequest',
+  // 'loaders',
+  // 'resource',
+  // 'parser',
+  // 'options',
+  // 'sourceType',
+  // 'moduleType',
+  // 'generator',
+  // 'resolveOptions',
+  // 'identifier',
+  // 'assigned',
+  // 'factoryMeta',
+  // 'issuer',
+  // 'useSourceMap',
+  // 'lineToLine',
+  // 'build',
+  // 'built',
+  // 'buildTimestamp',
+  // 'buildMeta',
+  // 'exportsType',
+  // 'providedExports',
+  // 'buildInfo',
+  // 'cacheable',
+  // 'fileDependencies',
+  // 'contextDependencies',
+  // 'exportsArgument',
+  // 'warnings',
+  // 'errors',
+  // '_source',
+  // 'value',
+  // 'name',
+  // 'hash',
+  // '_lastSuccessfulBuildMeta',
+  // 'dependencyBlock',
+  // 'DependenciesBlock',
+  // 'dependencies',
+  // 'loc',
+  // 'start',
+  // 'line',
+  // 'column',
+  // 'end',
+  // 'index',
+  // 'expression',
+  // 'range',
+  // 'sourceOrder',
+  // 'rangeStatement',
+  // 'id',
+  // 'is',
+  // 'strictExportPresence',
+  // 'namespaceObjectAsContext',
+  // 'callArgs',
+  // 'properties',
+  // 'call',
+  // 'callee',
+  // 'arguments',
+  // 'directImport',
+  // 'variables',
+  // 'blocks',
+  // 'source',
+  // '_cachedSource',
+  // 'replacements',
+  // 'cachedSource',
+  // 'cachedMaps',
+  // '_cachedSourceHash',
+  // 'renderedHash',
+];

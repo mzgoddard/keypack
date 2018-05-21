@@ -2,12 +2,14 @@
 
 function BinaryHeap(scoreFunction){
   this.content = [];
+  this.contentIndex = new Map();
   this.scoreFunction = scoreFunction;
 }
 
 BinaryHeap.prototype = {
   push: function(element) {
     // Add the new element to the end of the array.
+    this.contentIndex.set(element, this.content.length);
     this.content.push(element);
     // Allow it to bubble up.
     this.bubbleUp(this.content.length - 1);
@@ -67,7 +69,9 @@ BinaryHeap.prototype = {
 
       // Otherwise, swap the parent with the current element and
       // continue.
+      this.contentIndex.set(element, parentN);
       this.content[parentN] = element;
+      this.contentIndex.set(parent, n);
       this.content[n] = parent;
       n = parentN;
     }

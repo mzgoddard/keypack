@@ -192,3 +192,6 @@ if (this.TextEncoder) {
   TextEncoder = this.TextEncoder;
   TextDecoder = this.TextDecoder;
 }
+
+exports.TextEncoder = TextEncoder;
+exports.TextDecoder = TextDecoder;
