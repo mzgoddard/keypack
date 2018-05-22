@@ -58,15 +58,16 @@ const DICT_1BYTE_MAX = 0xff + DICT_0BYTE_MAX;
 const DICT_2BYTE_MAX = 0xffff;
 
 const UINT6_BIT_MASK = VARIED_BIT_MASK;
-const UINT8_PLUS = 0xb3;
-const UINT16 = 0xb4;
-const UINT32 = 0xb5;
-const INT8 = 0xb6;
-const INT16 = 0xb7;
-const INT32 = 0xb8;
-const FLOAT16 = 0xb9;
-const FLOAT32 = 0xba;
-const FLOAT64 = 0xbb;
+const UINT8_PLUS = 0xb2;
+const UINT16 = 0xb3;
+const UINT32 = 0xb4;
+const INT8 = 0xb5;
+const INT16 = 0xb6;
+const INT32 = 0xb7;
+const FLOAT16 = 0xb8;
+const FLOAT32 = 0xb9;
+const FLOAT64 = 0xba;
+const UNDEFINED = 0xbb;
 const NULL = 0xbc;
 const FALSE = 0xbd;
 const TRUE = 0xbe;
@@ -203,9 +204,11 @@ class StringCount {
     const counts = this.counts;
     const order = this.order;
 
-    const string = order[index];
+    const string = this.heap.content[index];
     const count = (counts.get(string) || 0) + 1;
     counts.set(string, count);
+
+    // console.log('string', index, string);
 
     if (count < 1) {
       return string;
@@ -346,12 +349,15 @@ const pushBuffer = (buffer, type, value) => {
   buffer.offset += 1 + value.length;
 };
 
-const writeDictByte = (buffer, value) => {
+const writeDictSubByte = (buffer, value) => {
   pushByte(buffer, DICT_PREFIX | value);
 };
 
-const writeDictBytePlus = (buffer, value) => {
-  pushBytePlus(buffer, DICT_1BYTE, value);
+const writeDictByte = (buffer, value) => {
+  const {u8, offset} = buffer;
+  u8[offset] = DICT_1BYTE;
+  u8[offset + 1] = value - DICT_0BYTE_MAX;
+  buffer.offset += 2;
 };
 
 const writeDictShort = (buffer, value) => {
@@ -368,15 +374,19 @@ const writeDict = (buffer, dictIndex) => {
   // newDictIndex = dictIndex - newDictIndex;
 
   if (dictIndex < DICT_0BYTE_MAX) {
-    writeDictByte(buffer, dictIndex);
+    // console.log('writeDictByte');
+    writeDictSubByte(buffer, dictIndex);
   }
   else if (dictIndex < DICT_1BYTE_MAX) {
-    writeDictBytePlus(buffer, dictIndex);
+    // console.log('writeDictBytePlus');
+    writeDictByte(buffer, dictIndex);
   }
   else if (dictIndex < DICT_2BYTE_MAX) {
+    // console.log('writeDictShort');
     writeDictShort(buffer, dictIndex);
   }
   else {
+    // console.log('writeDictWord');
     writeDictWord(buffer, dictIndex);
   }
 };
@@ -409,29 +419,32 @@ const writeString = (buffer, value) => {
   buffer.dict.use(value);
 
   // if (dict.counts.get(value) > 1) {
+  // console.log(value, dictIndex);
   if (dictIndex >= 0) {
-    writeDict(buffer, value);
+    // console.log('writeDict');
+    writeDict(buffer, dictIndex);
   }
   else if (typeof value === 'string') {
+    // console.log('writeString');
     length = Buffer.byteLength(value);
     if (length === 0) {
-      console.log('empty');
+      // console.log('empty');
       return writeEmptyString(buffer);
     }
     else if (length < (BUFFER_1BYTE & STRING_BIT_MASK)) {
-      console.log('partial byte');
+      // console.log('partial byte');
       writeStringLengthByte(buffer, length);
     }
     else if (length < 0xff + (BUFFER_1BYTE & STRING_BIT_MASK)) {
-      console.log('byte');
+      // console.log('byte');
       writeStringLengthBytePlus(buffer, length);
     }
     else if (length < 0x10000) {
-      console.log('short');
+      // console.log('short');
       writeStringLengthShort(buffer, length);
     }
     else {
-      console.log('word');
+      // console.log('word');
       writeStringLengthWord(buffer, length);
     }
 
@@ -448,7 +461,7 @@ const writeArray = (buffer, value) => {
     pushByte(buffer, value.length);
   }
   else if (value.length < 0x10000) {
-    pushShort(buffer, ARRAY_1BYTE, value.length);
+    pushShort(buffer, ARRAY_2BYTE, value.length);
   }
   for (let i = 0; i < value.length; i++) {
     write(buffer, value[i]);
@@ -458,10 +471,14 @@ const writeArray = (buffer, value) => {
 const writeObject = (buffer, value) => {
   const keys = Object.keys(value);
   if (keys.length < (OBJECT_1BYTE & OBJECT_BIT_MASK)) {
-    pushByte(buffer, OBJ_PREFIX_PREFIX | keys.length);
+    pushByte(buffer, OBJECT_PREFIX | keys.length);
   }
-  else {
-    pushWord(buffer, OBJ_PREFIX_BYTE, keys.length);
+  else if (keys.length < 0x100) {
+    pushByte(buffer, OBJECT_1BYTE);
+    pushByte(buffer, keys.length);
+  }
+  else if (keys.length < 0x10000) {
+    pushShort(buffer, OBJECT_2BYTE, keys.length);
   }
   for (let i = 0; i < keys.length; i++) {
     writeString(buffer, keys[i]);
@@ -564,6 +581,8 @@ const writeNumber = (buffer, value) => {
 
 const writeBoolean = (buffer, value) => pushByte(buffer, value === true ? TRUE : FALSE);
 
+const writeUndefined = buffer => pushByte(buffer, UNDEFINED);
+
 const writeNull = buffer => pushByte(buffer, NULL);
 
 const writeEmptyString = buffer => pushByte(buffer, STRING_EMPTY);
@@ -573,6 +592,7 @@ const write = (buffer, value) => {
   else if (typeof value === 'object') writeObjectArray(buffer, value);
   else if (typeof value === 'number') writeNumber(buffer, value);
   else if (typeof value === 'boolean') writeBoolean(buffer, value);
+  else if (typeof value === 'undefined') writeUndefined(buffer);
 };
 
 // const dict = new StringCount();
@@ -630,12 +650,14 @@ const popWide = (buffer, wide = []) => {
   return wide;
 };
 
-const readDictByte = buffer => {
+const readDictSubByte = buffer => {
   return popByte(buffer) & DICT_BIT_MASK;
 };
 
-const readDictBytePlus = buffer => {
-  return popBytePlus(buffer);
+const readDictByte = buffer => {
+  const {u8, offset} = buffer;
+  buffer.offset += 2;
+  return DICT_0BYTE_MAX + u8[offset + 1];
 };
 
 const readDictShort = buffer => {
@@ -648,11 +670,11 @@ const readDictWord = buffer => {
 
 const readDict = buffer => {
   const type = peekByte(buffer);
-  if (type & DICT_BIT_MASK < DICT_1BYTE & DICT_BIT_MASK) {
-    return buffer.dict.string(readDictByte(buffer));
+  if ((type & DICT_BIT_MASK) < (DICT_1BYTE & DICT_BIT_MASK)) {
+    return buffer.dict.string(readDictSubByte(buffer));
   }
   else if (type === DICT_1BYTE) {
-    return buffer.dict.string(readDictBytePlus(buffer));
+    return buffer.dict.string(readDictByte(buffer));
   }
   else if (type === DICT_2BYTE) {
     return buffer.dict.string(readDictShort(buffer));
@@ -744,6 +766,10 @@ const readFloat64 = buffer => {
   return f64[0];
 };
 
+const readUndefined = buffer => {
+  return (popByte(buffer), void 0);
+};
+
 const readNull = buffer => {
   return (popByte(buffer), null);
 };
@@ -794,6 +820,9 @@ const readVaried = buffer => {
     case FLOAT64:
       return readFloat64(buffer);
 
+    case UNDEFINED:
+      return readUndefined(buffer);
+
     case NULL:
       return readNull(buffer);
 
@@ -830,35 +859,39 @@ const readStringBody = (buffer, length) => {
   const {offset, u8_node} = buffer;
   const end = offset + length;
   buffer.offset = end;
-  return u8_node.utf8Slice(offset, end);
+  const string = u8_node.utf8Slice(offset, end);
+  buffer.dict.use(string);
+  // console.log(buffer.dict);
+  return string;
 };
 
 const readString = buffer => {
   const type = peekByte(buffer);
   if ((type & STRING_BIT_MASK) < (BUFFER_1BYTE & STRING_BIT_MASK)) {
-    console.log('partial byte');
+    // console.log('partial byte');
     return readStringBody(buffer, readStringLengthByte(buffer));
   }
   else if (type === STRING_1BYTE) {
-    console.log('byte');
+    // console.log('byte');
     return readStringBody(buffer, readStringLengthBytePlus(buffer));
   }
   else if (type === STRING_2BYTE) {
-    console.log('short');
+    // console.log('short');
     return readStringBody(buffer, readStringLengthShort(buffer));
   }
   else {
-    console.log('word');
+    // console.log('word');
     return readStringBody(buffer, readStringLengthWord(buffer));
   }
 };
 
-const readArrayLengthByte = buffer => {
+const readArrayLengthSubByte = buffer => {
   return popByte(buffer) & OBJECT_BIT_MASK;
 };
 
-const readArrayLengthBytePlus = buffer => {
-  return popBytePlus(buffer);
+const readArrayLengthByte = buffer => {
+  popByte(buffer);
+  return popByte(buffer);
 };
 
 const readArrayLengthShort = buffer => {
@@ -880,10 +913,10 @@ const readArrayBody = (buffer, length) => {
 const readArray = buffer => {
   const type = peekType(buffer);
   if ((type & OBJECT_BIT_MASK) < (OBJECT_1BYTE & OBJECT_BIT_MASK)) {
-    return readArrayBody(buffer, readArrayLengthByte(buffer));
+    return readArrayBody(buffer, readArrayLengthSubByte(buffer));
   }
   else if (type === ARRAY_1BYTE) {
-    return readArrayBody(buffer, readArrayLengthBytePlus(buffer));
+    return readArrayBody(buffer, readArrayLengthByte(buffer));
   }
   else if (type === ARRAY_2BYTE) {
     return readArrayBody(buffer, readArrayLengthShort(buffer));
@@ -901,7 +934,9 @@ const readObjectLengthByte = buffer => {
 };
 
 const readObjectLengthBytePlus = buffer => {
-  return popBytePlus(buffer);
+  const {u8, offset} = buffer;
+  buffer.offset += 2;
+  return (OBJECT_1BYTE & OBJECT_BIT_MASK) + u8[offset + 1];
 };
 
 const readObjectLengthShort = buffer => {
@@ -923,7 +958,7 @@ const readObjectBody = (buffer, length) => {
 
 const readObject = buffer => {
   const type = peekType(buffer);
-  if (type & OBJECT_BIT_MASK < OBJECT_1BYTE & OBJECT_BIT_MASK) {
+  if ((type & OBJECT_BIT_MASK) < (OBJECT_1BYTE & OBJECT_BIT_MASK)) {
     return readObjectBody(buffer, readObjectLengthByte(buffer));
   }
   else if (type === OBJECT_1BYTE) {
@@ -936,7 +971,7 @@ const readObject = buffer => {
     return readObjectBody(buffer, readObjectLengthWord(buffer));
   }
   else {
-    throw new Error(`Cannot read array at ${buffer.offset}.`);
+    throw new Error(`Cannot read object at ${buffer.offset}.`);
   }
 };
 

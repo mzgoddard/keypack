@@ -5,7 +5,7 @@ const t = require('tap');
 const {load, dump} = require('../src');
 
 t.test('uint6', t => {
-  for (let i = 0; i < 51; i++) {
+  for (let i = 0; i < 50; i++) {
     t.equal(dump(i).length, 1, 'output takes 1 byte');
     t.equal(load(dump(i)), i, 'output equals input');
   }
@@ -13,7 +13,7 @@ t.test('uint6', t => {
 });
 
 t.test('uint8+', t => {
-  for (let i = 51; i < 0xff + 50; i++) {
+  for (let i = 50; i < 0xff + 50; i++) {
     t.equal(dump(i).length, 2, 'output takes 2 bytes');
     t.equal(load(dump(i)), i, 'output equals input');
   }
